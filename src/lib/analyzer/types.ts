@@ -19,6 +19,16 @@ export type RepoSnapshot = {
   files: RepoFile[];
 };
 
+/** One occurrence of an env var name found in the repo (example file or source). */
+export type EnvVarOccurrence = {
+  /** The variable name only — values are never captured. */
+  name: string;
+  file: string;
+  line: number;
+  /** The source line, with any `KEY=value` value redacted. */
+  snippet: string;
+};
+
 /**
  * Facts about the repository derived from non-documentation sources
  * (package.json, file existence, etc). This is "reality" — what doc claims
@@ -35,10 +45,14 @@ export type TruthModel = {
   rootFiles: string[];
   /** Every file path in the repo, root-relative and posix-style. */
   filePaths: string[];
+  /** Env var names declared in `.env.example`/`.sample`/`.template` files. */
+  envVarsFromExamples: EnvVarOccurrence[];
+  /** Env var names read in source (process.env.X, import.meta.env.X, etc). */
+  envVarsFromCode: EnvVarOccurrence[];
 };
 
 /** The kinds of claims extractDocClaims currently knows how to find. */
-export type DocClaimKind = 'npm-script' | 'file-reference';
+export type DocClaimKind = 'npm-script' | 'file-reference' | 'env-var';
 
 /** Where a claim was found in the documentation. */
 export type DocClaimSource = {
@@ -67,11 +81,21 @@ export type FileReferenceClaim = {
   source: DocClaimSource;
 };
 
+/** A claim that documents an environment variable, e.g. "set `DATABASE_URL`". */
+export type EnvVarClaim = {
+  kind: 'env-var';
+  /** The variable name only — values are never captured. */
+  name: string;
+  /** The reference as written, e.g. "DATABASE_URL" or "DATABASE_URL=". */
+  rawText: string;
+  source: DocClaimSource;
+};
+
 /**
  * A single claim made by the documentation. Detectors check claims like this
  * against the TruthModel.
  */
-export type DocClaim = NpmScriptClaim | FileReferenceClaim;
+export type DocClaim = NpmScriptClaim | FileReferenceClaim | EnvVarClaim;
 
 export type DriftSeverity = 'error' | 'warning' | 'info';
 

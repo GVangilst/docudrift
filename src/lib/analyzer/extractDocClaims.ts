@@ -2,6 +2,7 @@ import { findRootFileCaseInsensitive } from './repoSnapshot';
 import type {
   DocClaim,
   DocClaimSource,
+  EnvVarClaim,
   FileReferenceClaim,
   NpmScriptClaim,
   RepoSnapshot,
@@ -10,6 +11,13 @@ import type {
 const RUN_SCRIPT_RE = /\bnpm\s+run(?:-script)?\s+([a-zA-Z0-9_:.-]+)/g;
 const START_RE = /\bnpm\s+start\b/;
 const TEST_RE = /\bnpm\s+test\b/;
+
+// An uppercase `KEY=` assignment, e.g. `DATABASE_URL=...` in an env block.
+// The negative lookahead avoids matching JS comparisons like `X===y`.
+const ENV_ASSIGNMENT_DOC_RE = /([A-Z][A-Z0-9_]*)=(?!=)/g;
+// A SCREAMING_SNAKE_CASE token in prose, e.g. "set DATABASE_URL in .env".
+// Requiring an underscore keeps single-word acronyms (API, URL, MIT) out.
+const ENV_SNAKE_RE = /\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g;
 
 // Markdown link destination: the `dest` in `[text](dest)`.
 const MARKDOWN_LINK_DEST_RE = /\]\(\s*([^)\s]+)/g;
@@ -94,9 +102,27 @@ function extractFileReferenceClaims(line: string, source: DocClaimSource): FileR
   return claims;
 }
 
+function extractEnvVarClaims(line: string, source: DocClaimSource): EnvVarClaim[] {
+  const claims: EnvVarClaim[] = [];
+  const seen = new Set<string>();
+
+  const add = (name: string, rawText: string) => {
+    if (name.length < 2 || seen.has(name)) return;
+    seen.add(name);
+    // rawText intentionally never includes an assignment's value.
+    claims.push({ kind: 'env-var', name, rawText, source });
+  };
+
+  for (const match of line.matchAll(ENV_ASSIGNMENT_DOC_RE)) add(match[1], `${match[1]}=`);
+  for (const match of line.matchAll(ENV_SNAKE_RE)) add(match[1], match[1]);
+
+  return claims;
+}
+
 /**
- * Extracts the claims the README makes: npm scripts it says to run, and file
- * paths it references. Detectors compare these against the TruthModel.
+ * Extracts the claims the README makes: npm scripts it says to run, file paths
+ * it references, and env vars it documents. Detectors compare these against the
+ * TruthModel.
  */
 export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
   const readme = findRootFileCaseInsensitive(snapshot, 'README.md');
@@ -112,6 +138,7 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
     };
     claims.push(...extractNpmScriptClaims(line, source));
     claims.push(...extractFileReferenceClaims(line, source));
+    claims.push(...extractEnvVarClaims(line, source));
   });
 
   return claims;

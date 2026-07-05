@@ -1,5 +1,11 @@
+import {
+  extractEnvUsagesFromSource,
+  extractEnvVarsFromExample,
+  isEnvExampleFile,
+  isSourceFile,
+} from './envVars';
 import { getRootFile, listRootFilePaths } from './repoSnapshot';
-import type { RepoSnapshot, TruthModel } from './types';
+import type { EnvVarOccurrence, RepoSnapshot, TruthModel } from './types';
 
 /**
  * Derives ground-truth facts about the repo from its actual files.
@@ -32,10 +38,22 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
 
   const rootFiles = listRootFilePaths(snapshot);
 
+  const envVarsFromExamples: EnvVarOccurrence[] = [];
+  const envVarsFromCode: EnvVarOccurrence[] = [];
+  for (const file of snapshot.files) {
+    if (isEnvExampleFile(file.path)) {
+      envVarsFromExamples.push(...extractEnvVarsFromExample(file));
+    } else if (isSourceFile(file.path)) {
+      envVarsFromCode.push(...extractEnvUsagesFromSource(file));
+    }
+  }
+
   return {
     packageJson,
     hasRootServerJs: rootFiles.includes('server.js'),
     rootFiles,
     filePaths: snapshot.files.map((file) => file.path),
+    envVarsFromExamples,
+    envVarsFromCode,
   };
 }
