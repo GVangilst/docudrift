@@ -4,6 +4,7 @@ import {
   isEnvExampleFile,
   isSourceFile,
 } from './envVars';
+import { collectNodeVersionRequirements } from './nodeVersions';
 import { getRootFile, listRootFilePaths } from './repoSnapshot';
 import type {
   EnvVarOccurrence,
@@ -31,6 +32,7 @@ const LOCKFILE_MANAGERS: { file: string; manager: PackageManager }[] = [
 export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
   const packageJsonFile = getRootFile(snapshot, 'package.json');
   let packageJson: TruthModel['packageJson'] = null;
+  let voltaNode: string | null = null;
 
   if (packageJsonFile) {
     try {
@@ -39,6 +41,7 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
         engines?: Record<string, string>;
         version?: string;
         license?: string;
+        volta?: { node?: string };
       };
 
       packageJson = {
@@ -47,6 +50,7 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
         version: parsed.version ?? null,
         license: parsed.license ?? null,
       };
+      voltaNode = parsed.volta?.node ?? null;
     } catch {
       packageJson = null;
     }
@@ -72,6 +76,12 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
   const packageManager: PackageManager | null =
     lockfileManagers.size === 1 ? [...lockfileManagers][0] : null;
 
+  const nodeVersionRequirements = collectNodeVersionRequirements(
+    snapshot,
+    packageJson?.engines?.node ?? null,
+    voltaNode,
+  );
+
   return {
     packageJson,
     hasRootServerJs: rootFiles.includes('server.js'),
@@ -81,5 +91,6 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     envVarsFromCode,
     lockfiles,
     packageManager,
+    nodeVersionRequirements,
   };
 }

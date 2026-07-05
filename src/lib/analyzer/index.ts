@@ -6,4 +6,5 @@ export { commandDriftDetector } from './detectors/commandDriftDetector';
 export { fileReferenceDriftDetector } from './detectors/fileReferenceDriftDetector';
 export { envVarDriftDetector } from './detectors/envVarDriftDetector';
 export { packageManagerDriftDetector } from './detectors/packageManagerDriftDetector';
+export { nodeEngineMismatchDetector } from './detectors/nodeEngineMismatchDetector';
 export { levenshtein, closestMatch } from './fuzzyMatch';

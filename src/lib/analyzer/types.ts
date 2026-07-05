@@ -38,6 +38,23 @@ export type LockfileInfo = {
   manager: PackageManager;
 };
 
+/** Where a Node.js version requirement was found in the repo. */
+export type NodeVersionSource =
+  | 'engines.node'
+  | 'volta.node'
+  | '.nvmrc'
+  | '.node-version'
+  | '.tool-versions';
+
+/** One piece of Node.js version evidence from repo config (not documentation). */
+export type NodeVersionRequirement = {
+  source: NodeVersionSource;
+  file: string;
+  /** The raw version/range string, e.g. ">=20", "20.11.1", "18". */
+  raw: string;
+  line: number;
+};
+
 /**
  * Facts about the repository derived from non-documentation sources
  * (package.json, file existence, etc). This is "reality" — what doc claims
@@ -62,10 +79,17 @@ export type TruthModel = {
   lockfiles: LockfileInfo[];
   /** Inferred package manager — set only when exactly one manager's lockfile exists. */
   packageManager: PackageManager | null;
+  /** Node.js version evidence from package.json, .nvmrc, .node-version, etc. */
+  nodeVersionRequirements: NodeVersionRequirement[];
 };
 
 /** The kinds of claims extractDocClaims currently knows how to find. */
-export type DocClaimKind = 'npm-script' | 'file-reference' | 'env-var' | 'command';
+export type DocClaimKind =
+  | 'npm-script'
+  | 'file-reference'
+  | 'env-var'
+  | 'command'
+  | 'node-version';
 
 /** Where a claim was found in the documentation. */
 export type DocClaimSource = {
@@ -114,6 +138,16 @@ export type PackageCommandClaim = {
   source: DocClaimSource;
 };
 
+/** A claim that documents a required Node.js version, e.g. "Requires Node >=18". */
+export type NodeVersionClaim = {
+  kind: 'node-version';
+  /** The full matched text, e.g. "Node >=18" or "nvm use 20". */
+  raw: string;
+  /** The version/range token as written, e.g. ">=18", "18", "20.11.1", "18.x". */
+  version: string;
+  source: DocClaimSource;
+};
+
 /**
  * A single claim made by the documentation. Detectors check claims like this
  * against the TruthModel.
@@ -122,7 +156,8 @@ export type DocClaim =
   | NpmScriptClaim
   | FileReferenceClaim
   | EnvVarClaim
-  | PackageCommandClaim;
+  | PackageCommandClaim
+  | NodeVersionClaim;
 
 export type DriftSeverity = 'error' | 'warning' | 'info';
 

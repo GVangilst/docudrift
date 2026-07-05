@@ -58,9 +58,11 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
       (`lockfiles`, inferred `packageManager`)
 - [x] Source scanner: `process.env.X` / `import.meta.env.X` usages (`envVars.ts`;
       file-count cap still to add)
+- [x] Node version evidence parser: engines.node, volta.node, .nvmrc,
+      .node-version, .tool-versions (`nodeVersions.ts`)
 - [~] Truth model assembled (`TruthModel`: packageJson, rootFiles, filePaths,
       hasRootServerJs, envVarsFromExamples, envVarsFromCode, lockfiles,
-      packageManager) — grows as more parsers land
+      packageManager, nodeVersionRequirements) — grows as more parsers land
 - [~] Tests: analyzer covered via fixture repos under `tests/fixtures/repos`;
       dedicated malformed/edge-case parser tests still to add
 
@@ -71,19 +73,21 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
 
 - [~] Detector engine: `analyzeRepository()` runs detectors → `DriftIssue[]`.
       Registry / error isolation / severity ordering still to add
-- [~] MVP-critical detectors — 5 of 7 done:
+- [~] MVP-critical detectors — 6 of 7 done:
   - [x] `commandDriftDetector` (covers `missing-scripts`)
   - [x] `fileReferenceDriftDetector` (covers `dead-links`, w/ fuzzy path suggestion)
   - [x] `envVarDriftDetector` (covers `env-var-drift`; README vs `.env.example`
         vs `process.env`/`import.meta.env`, with value redaction)
   - [x] `packageManagerDriftDetector` (covers `package-manager-mismatch` +
         `multiple-lockfiles` ambiguity; ignores README "alternatives" lines)
-  - [ ] `node-engine-mismatch`, `docker-drift`
+  - [x] `nodeEngineMismatchDetector` (covers `node-engine-mismatch`; README/nvm
+        vs engines.node/.nvmrc/.node-version/.tool-versions/volta, semver-based)
+  - [ ] `docker-drift`
 - [ ] Implement stretch detectors if time allows: `license-mismatch`,
       `version-badge-drift`, `missing-core-sections`
-- [~] Each detector ships fixture-based unit tests (done for the 4 built:
+- [~] Each detector ships fixture-based unit tests (done for the 5 built:
       `tests/analyzer/*.test.ts`, should-fire + should-not-fire cases)
-- [~] Suggested-fix templates (done for the 4 built; plain strings, no AI)
+- [~] Suggested-fix templates (done for the 5 built; plain strings, no AI)
 
 ## Phase 4 — API
 

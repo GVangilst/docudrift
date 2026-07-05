@@ -4,6 +4,7 @@ import type {
   DocClaimSource,
   EnvVarClaim,
   FileReferenceClaim,
+  NodeVersionClaim,
   NpmScriptClaim,
   PackageCommandClaim,
   PackageManager,
@@ -30,6 +31,17 @@ const PM_COMMAND_RE = new RegExp(
   `\\b(npm|yarn|pnpm|bun)\\s+(?:${PM_SUBCOMMANDS})\\b(?:\\s+[@\\w:./-]+)*`,
   'g',
 );
+
+// A Node version expression: optional operator, optional `v`, dotted digits,
+// optional `.x` or `+` suffix — matches "18", ">=18", "18+", "18.x", "20.11.1".
+const NODE_VERSION_EXPR = '(?:>=|<=|>|<|\\^|~)?\\s*v?\\d+(?:\\.\\d+){0,2}(?:\\.x|\\+)?';
+// "Node 18", "Node.js >=20", "Requires Node 20", "node version 20.11.1", etc.
+const NODE_MENTION_RE = new RegExp(
+  `\\bnode(?:\\.js)?\\s+(?:version\\s+)?(${NODE_VERSION_EXPR})`,
+  'gi',
+);
+// "nvm use 20", "nvm install 18".
+const NVM_RE = new RegExp(`\\bnvm\\s+(?:use|install)\\s+(${NODE_VERSION_EXPR})`, 'gi');
 
 // Markdown link destination: the `dest` in `[text](dest)`.
 const MARKDOWN_LINK_DEST_RE = /\]\(\s*([^)\s]+)/g;
@@ -149,6 +161,23 @@ function extractPackageCommandClaims(
   return claims;
 }
 
+function extractNodeVersionClaims(line: string, source: DocClaimSource): NodeVersionClaim[] {
+  const claims: NodeVersionClaim[] = [];
+  const seen = new Set<string>();
+
+  const add = (raw: string, versionToken: string) => {
+    const version = versionToken.replace(/\s+/g, '');
+    if (!version || seen.has(version)) return;
+    seen.add(version);
+    claims.push({ kind: 'node-version', raw: raw.trim(), version, source });
+  };
+
+  for (const match of line.matchAll(NODE_MENTION_RE)) add(match[0], match[1]);
+  for (const match of line.matchAll(NVM_RE)) add(match[0], match[1]);
+
+  return claims;
+}
+
 /**
  * Extracts the claims the README makes: npm scripts it says to run, file paths
  * it references, and env vars it documents. Detectors compare these against the
@@ -170,6 +199,7 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
     claims.push(...extractFileReferenceClaims(line, source));
     claims.push(...extractEnvVarClaims(line, source));
     claims.push(...extractPackageCommandClaims(line, source));
+    claims.push(...extractNodeVersionClaims(line, source));
   });
 
   return claims;
