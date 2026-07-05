@@ -6,22 +6,34 @@ import { fileReferenceDriftDetector } from './detectors/fileReferenceDriftDetect
 import { nodeEngineMismatchDetector } from './detectors/nodeEngineMismatchDetector';
 import { packageManagerDriftDetector } from './detectors/packageManagerDriftDetector';
 import { extractDocClaims } from './extractDocClaims';
-import type { DriftIssue, RepoSnapshot } from './types';
+import type { DocClaim, DriftIssue, RepoSnapshot, TruthModel } from './types';
+
+/** The registered detector suite, run in order. */
+const DETECTORS: ((claims: DocClaim[], truth: TruthModel) => DriftIssue[])[] = [
+  commandDriftDetector,
+  fileReferenceDriftDetector,
+  envVarDriftDetector,
+  packageManagerDriftDetector,
+  nodeEngineMismatchDetector,
+  dockerDriftDetector,
+];
 
 /**
- * Runs the full detector suite against a repo snapshot and returns every
- * drift finding. Add new detectors to this list as they're implemented.
+ * Runs the full detector suite against a repo snapshot and returns every drift
+ * finding. Each detector is isolated: one that throws is skipped rather than
+ * failing the whole scan.
  */
 export function analyzeRepository(snapshot: RepoSnapshot): DriftIssue[] {
   const truth = buildTruthModel(snapshot);
   const claims = extractDocClaims(snapshot);
 
-  return [
-    ...commandDriftDetector(claims, truth),
-    ...fileReferenceDriftDetector(claims, truth),
-    ...envVarDriftDetector(claims, truth),
-    ...packageManagerDriftDetector(claims, truth),
-    ...nodeEngineMismatchDetector(claims, truth),
-    ...dockerDriftDetector(claims, truth),
-  ];
+  const issues: DriftIssue[] = [];
+  for (const detector of DETECTORS) {
+    try {
+      issues.push(...detector(claims, truth));
+    } catch {
+      // A misbehaving detector must not fail the whole scan.
+    }
+  }
+  return issues;
 }

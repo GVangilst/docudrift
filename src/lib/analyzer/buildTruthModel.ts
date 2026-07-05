@@ -5,25 +5,10 @@ import {
   isEnvExampleFile,
   isSourceFile,
 } from './envVars';
+import { LOCKFILE_MANAGERS } from './keyFiles';
 import { collectNodeVersionRequirements } from './nodeVersions';
 import { getRootFile, listRootFilePaths } from './repoSnapshot';
-import type {
-  EnvVarOccurrence,
-  LockfileInfo,
-  PackageManager,
-  RepoSnapshot,
-  TruthModel,
-} from './types';
-
-// Lockfile name → the package manager it implies.
-const LOCKFILE_MANAGERS: { file: string; manager: PackageManager }[] = [
-  { file: 'package-lock.json', manager: 'npm' },
-  { file: 'npm-shrinkwrap.json', manager: 'npm' },
-  { file: 'yarn.lock', manager: 'yarn' },
-  { file: 'pnpm-lock.yaml', manager: 'pnpm' },
-  { file: 'bun.lock', manager: 'bun' },
-  { file: 'bun.lockb', manager: 'bun' },
-];
+import type { EnvVarOccurrence, LockfileInfo, PackageManager, RepoSnapshot, TruthModel } from './types';
 
 /**
  * Derives ground-truth facts about the repo from its actual files.

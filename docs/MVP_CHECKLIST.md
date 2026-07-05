@@ -27,18 +27,25 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
 
 ## Phase 1 — GitHub fetch layer
 
-- [ ] Parse/validate `repoUrl` → `{owner, repo}`, reject malformed input
-      (`INVALID_URL`)
-- [ ] Fetch repo metadata + default branch + commit SHA
-- [ ] Fetch recursive file tree; detect and flag truncation
-- [ ] Reject non-JS/TS repos (no root `package.json`) with `NOT_JS_TS`
-- [ ] File selection logic: README, package.json, env example(s), Docker files,
-      lockfile presence, capped source file list
-- [ ] Fetch file contents with per-file size cap and total cap
-- [ ] Handle `404` (`REPO_NOT_FOUND`), `403` rate limit (`RATE_LIMITED` with
-      reset time), request timeout, optional `GITHUB_TOKEN` env var support
-- [ ] Tests: mocked HTTP (nock/MSW) covering happy path + every error path above,
-      no real network calls
+> Implemented under `src/lib/github/`. HTTP is mocked in tests via an injected
+> `fetchFn` (no nock/MSW dependency). File content is fetched from
+> `raw.githubusercontent.com` (doesn't count against the API rate limit), so a
+> scan uses 3 API calls regardless of file count.
+
+- [x] Parse/validate `repoUrl` → `{owner, repo}`, reject malformed input
+      (`INVALID_URL`) — `parseRepoUrl.ts` (also the SSRF boundary)
+- [x] Fetch repo metadata + default branch + commit SHA (`fetchRepoSnapshot.ts`)
+- [x] Fetch recursive file tree; detect and flag truncation
+- [x] Reject non-JS/TS repos (no root `package.json`) with `NOT_JS_TS`
+- [x] File selection logic: README, package.json, env example(s), Docker files,
+      lockfiles, node-version files, capped source file list (`fileSelection.ts`,
+      shared filename constants in `keyFiles.ts`)
+- [x] Fetch file contents with per-file size cap and total cap
+- [x] Handle `404` (`REPO_NOT_FOUND`), `403` rate limit (`RATE_LIMITED` with
+      reset time), request timeout (`TIMEOUT`), optional `GITHUB_TOKEN` env var
+      (`githubClient.ts`)
+- [x] Tests: injected-fetch mocks covering happy path + every error path above,
+      no real network calls (`tests/github/*.test.ts`)
 
 ## Phase 2 — Parsers / normalizers
 
@@ -76,8 +83,9 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
 > Detectors currently run via `analyzeRepository()`; a formal registry with
 > per-detector error isolation and severity ordering is not built yet.
 
-- [~] Detector engine: `analyzeRepository()` runs detectors → `DriftIssue[]`.
-      Registry / error isolation / severity ordering still to add
+- [x] Detector engine: `analyzeRepository()` runs a registered detector list
+      with per-detector error isolation (one throwing detector is skipped, not
+      fatal); severity ordering happens in `buildReport()` (`report.ts`)
 - [x] MVP-critical detectors — 7 of 7 done:
   - [x] `commandDriftDetector` (covers `missing-scripts`)
   - [x] `fileReferenceDriftDetector` (covers `dead-links`, w/ fuzzy path suggestion)
@@ -99,14 +107,17 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
 
 ## Phase 4 — API
 
-- [ ] `POST /api/scans` — orchestrates fetch → parse → detect → persist →
-      respond, wired to real detector engine
-- [ ] `GET /api/scans/:id` — returns stored report
-- [ ] `GET /api/scans` — paginated recent-scans list
-- [ ] Consistent error response shape across all routes
-- [ ] Wall-clock scan timeout enforced end-to-end
-- [ ] Tests: Supertest integration tests for all three routes (GitHub layer
-      mocked), including every error code path
+> In-memory for now (no persistence yet): `POST /api/scans` fetches → analyzes →
+> returns the report in the response. `:id`/history are deferred with the DB.
+
+- [x] `POST /api/scans` — orchestrates fetch → analyze → respond, wired to the
+      real detector engine (`src/app/api/scans/route.ts`, `report.ts`)
+- [ ] `GET /api/scans/:id` — returns stored report (deferred: needs persistence)
+- [ ] `GET /api/scans` — paginated recent-scans list (deferred: needs persistence)
+- [x] Consistent error response shape `{ error: { code, message } }` across routes
+- [x] Wall-clock scan timeout enforced end-to-end (`SCAN_BUDGET_MS`, `TIMEOUT`)
+- [x] Tests: route-handler integration tests (GitHub layer mocked) covering the
+      report shape + error code → status paths (`tests/api/scans.test.ts`)
 
 ## Phase 5 — Frontend
 
