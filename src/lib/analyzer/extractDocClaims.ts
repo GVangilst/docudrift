@@ -1,5 +1,7 @@
 import { findRootFileCaseInsensitive } from './repoSnapshot';
 import type {
+  DockerCommandClaim,
+  DockerCommandKind,
   DocClaim,
   DocClaimSource,
   EnvVarClaim,
@@ -42,6 +44,13 @@ const NODE_MENTION_RE = new RegExp(
 );
 // "nvm use 20", "nvm install 18".
 const NVM_RE = new RegExp(`\\bnvm\\s+(?:use|install)\\s+(${NODE_VERSION_EXPR})`, 'gi');
+
+// Docker commands. Requiring a verb after `docker` keeps hostnames like
+// "docs.docker.com" (no space + verb) from matching.
+const DOCKER_COMPOSE_RE = /\bdocker(?:\s+compose|-compose)\s+up(?:\s+[-\w.=]+)*/gi;
+const DOCKER_BUILD_RE = /\bdocker\s+build\b(?:\s+[-\w./=]+)*/gi;
+const DOCKER_RUN_RE = /\bdocker\s+run\b(?:\s+[-\w./=:]+)*/gi;
+const DOCKER_BUILD_FILE_RE = /-f\s+([-\w./]+)/;
 
 // Markdown link destination: the `dest` in `[text](dest)`.
 const MARKDOWN_LINK_DEST_RE = /\]\(\s*([^)\s]+)/g;
@@ -178,6 +187,27 @@ function extractNodeVersionClaims(line: string, source: DocClaimSource): NodeVer
   return claims;
 }
 
+function extractDockerCommandClaims(line: string, source: DocClaimSource): DockerCommandClaim[] {
+  const claims: DockerCommandClaim[] = [];
+  const seen = new Set<string>();
+
+  const add = (command: DockerCommandKind, raw: string, dockerfile?: string) => {
+    const key = `${command}:${dockerfile ?? ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    claims.push({ kind: 'docker-command', command, raw: raw.trim(), dockerfile, source });
+  };
+
+  for (const match of line.matchAll(DOCKER_COMPOSE_RE)) add('compose', match[0]);
+  for (const match of line.matchAll(DOCKER_BUILD_RE)) {
+    const fileMatch = DOCKER_BUILD_FILE_RE.exec(match[0]);
+    add('build', match[0], fileMatch ? fileMatch[1] : undefined);
+  }
+  for (const match of line.matchAll(DOCKER_RUN_RE)) add('run', match[0]);
+
+  return claims;
+}
+
 /**
  * Extracts the claims the README makes: npm scripts it says to run, file paths
  * it references, and env vars it documents. Detectors compare these against the
@@ -200,6 +230,7 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
     claims.push(...extractEnvVarClaims(line, source));
     claims.push(...extractPackageCommandClaims(line, source));
     claims.push(...extractNodeVersionClaims(line, source));
+    claims.push(...extractDockerCommandClaims(line, source));
   });
 
   return claims;

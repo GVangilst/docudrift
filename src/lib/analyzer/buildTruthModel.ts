@@ -1,3 +1,4 @@
+import { collectDockerInfo } from './docker';
 import {
   extractEnvUsagesFromSource,
   extractEnvVarsFromExample,
@@ -92,5 +93,6 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     lockfiles,
     packageManager,
     nodeVersionRequirements,
+    docker: collectDockerInfo(snapshot),
   };
 }

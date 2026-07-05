@@ -55,6 +55,14 @@ export type NodeVersionRequirement = {
   line: number;
 };
 
+/** Docker-related files present in the repo. */
+export type DockerInfo = {
+  hasDockerfile: boolean;
+  dockerfilePaths: string[];
+  hasComposeFile: boolean;
+  composeFilePaths: string[];
+};
+
 /**
  * Facts about the repository derived from non-documentation sources
  * (package.json, file existence, etc). This is "reality" — what doc claims
@@ -81,6 +89,8 @@ export type TruthModel = {
   packageManager: PackageManager | null;
   /** Node.js version evidence from package.json, .nvmrc, .node-version, etc. */
   nodeVersionRequirements: NodeVersionRequirement[];
+  /** Docker/compose files present in the repo. */
+  docker: DockerInfo;
 };
 
 /** The kinds of claims extractDocClaims currently knows how to find. */
@@ -89,7 +99,8 @@ export type DocClaimKind =
   | 'file-reference'
   | 'env-var'
   | 'command'
-  | 'node-version';
+  | 'node-version'
+  | 'docker-command';
 
 /** Where a claim was found in the documentation. */
 export type DocClaimSource = {
@@ -148,6 +159,20 @@ export type NodeVersionClaim = {
   source: DocClaimSource;
 };
 
+/** The kind of Docker command a doc references. */
+export type DockerCommandKind = 'build' | 'run' | 'compose';
+
+/** A claim that documents a Docker command, e.g. "run `docker compose up`". */
+export type DockerCommandClaim = {
+  kind: 'docker-command';
+  command: DockerCommandKind;
+  /** The command as written, e.g. "docker build -f Dockerfile.dev .". */
+  raw: string;
+  /** For `docker build -f <file>`, the specified Dockerfile path. */
+  dockerfile?: string;
+  source: DocClaimSource;
+};
+
 /**
  * A single claim made by the documentation. Detectors check claims like this
  * against the TruthModel.
@@ -157,7 +182,8 @@ export type DocClaim =
   | FileReferenceClaim
   | EnvVarClaim
   | PackageCommandClaim
-  | NodeVersionClaim;
+  | NodeVersionClaim
+  | DockerCommandClaim;
 
 export type DriftSeverity = 'error' | 'warning' | 'info';
 

@@ -7,4 +7,5 @@ export { fileReferenceDriftDetector } from './detectors/fileReferenceDriftDetect
 export { envVarDriftDetector } from './detectors/envVarDriftDetector';
 export { packageManagerDriftDetector } from './detectors/packageManagerDriftDetector';
 export { nodeEngineMismatchDetector } from './detectors/nodeEngineMismatchDetector';
+export { dockerDriftDetector } from './detectors/dockerDriftDetector';
 export { levenshtein, closestMatch } from './fuzzyMatch';
