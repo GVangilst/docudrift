@@ -1,177 +1,233 @@
 # DocuDrift — Architecture
 
+> **Status legend:** each section is tagged **Implemented**, **Partial**, or
+> **Planned** to reflect the current code. The MVP is mid-build: the analyzer
+> core runs against local fixture repos today; the GitHub fetch layer, API scan
+> routes, persistence, and frontend report view are not built yet. See
+> [MVP_CHECKLIST.md](./MVP_CHECKLIST.md) for phase-by-phase progress.
+
 ## Stack
 
-- **Backend**: Node.js 20+, TypeScript, Express
-- **ORM/DB**: Prisma + PostgreSQL
-- **Frontend**: React 18 + Vite (SPA), calls the backend over HTTP/JSON
-- **GitHub access**: unauthenticated GitHub REST API (public repos only)
-- **Validation**: Zod (request bodies, parsed-file schemas)
-- **Testing**: Vitest (unit/detector), Supertest (API), React Testing Library
-  (frontend), `nock`/MSW (mocked GitHub HTTP in tests)
+**Status: Implemented (app shell) / Planned (some libraries)**
 
-Scans run **synchronously**: one HTTP request in, one full report out. This is
-acceptable at MVP scale because the file set per repo is small and bounded (see
-"File selection" below) and unauthenticated GitHub API calls are the dominant
-latency cost, not local compute. No job queue, no worker process, no polling.
+- **App**: Next.js (App Router) + TypeScript — a single app, not a split
+  Express API + Vite SPA. API routes live at `src/app/api/**/route.ts`; the
+  analyzer core lives under `src/lib/analyzer`.
+- **UI**: React 19 + Tailwind CSS.
+- **ORM/DB**: Prisma + PostgreSQL *(installed; schema is a placeholder, not yet
+  migrated — see "Database models")*.
+- **GitHub access**: unauthenticated GitHub REST API, public repos only
+  *(planned — not built)*.
+- **Testing**: Vitest, with on-disk fixture repos under `tests/fixtures/repos`.
+  React Testing Library + jsdom are installed but not yet used.
+- **Not yet added** (referenced by planned sections below): Zod (validation),
+  Supertest (API tests), `nock`/MSW (mocked GitHub HTTP).
+
+Scans are intended to run **synchronously**: one HTTP request in, one full
+report out — no job queue, no worker, no polling. This is acceptable at MVP
+scale because the file set per repo is small and bounded and GitHub API latency
+dominates local compute.
 
 ## High-level flow
 
+**Status: analyzer + health route Implemented; fetch/persist Planned**
+
+Today, the analyzer runs over a `RepoSnapshot` built from a local fixture
+directory. The dashed boxes below are the planned production path (GitHub fetch
+and persistence) that will feed the same analyzer.
+
 ```
-┌─────────────┐      POST /api/scans { repoUrl }      ┌──────────────────┐
-│  React SPA  │ ─────────────────────────────────────▶ │   Express API    │
-│             │ ◀───────────────────────────────────── │                  │
-└─────────────┘         Report JSON (200)               └────────┬─────────┘
-                                                                  │
-                                                                  ▼
-                                                   ┌──────────────────────────┐
-                                                   │  GitHub Fetch Layer      │
-                                                   │  (REST API, unauth)      │
-                                                   └────────────┬─────────────┘
-                                                                │ repo tree + file contents
-                                                                ▼
-                                                   ┌──────────────────────────┐
-                                                   │  Parsers / Normalizers   │
-                                                   │  (README, package.json, │
-                                                   │  env, docker, lockfiles) │
-                                                   └────────────┬─────────────┘
-                                                                │ normalized data model
-                                                                ▼
-                                                   ┌──────────────────────────┐
-                                                   │   Detector Engine        │
-                                                   │  (runs each detector,    │
-                                                   │   collects Findings)     │
-                                                   └────────────┬─────────────┘
-                                                                │ Scan + Findings
-                                                                ▼
-                                                   ┌──────────────────────────┐
-                                                   │       PostgreSQL         │
-                                                   └──────────────────────────┘
+┌─────────────┐     POST /api/scans { repoUrl }      ┌────────────────────────┐
+│  Next.js UI │ ───────────────────────────────────▶ │  Route handler         │  [planned]
+│  (report)   │ ◀─────────────────────────────────── │  src/app/api/scans     │
+└─────────────┘        Report JSON (200)              └───────────┬────────────┘
+                                                                   │
+                            ┌──────────────────────────┐          │  RepoSnapshot
+                            │  GitHub Fetch Layer       │  [planned]
+                            │  (REST API, unauth)       │──────────┘
+                            └──────────────────────────┘
+                                                                   ▼
+                                          ┌──────────────────────────────────────┐
+                                          │  Analyzer core  (src/lib/analyzer)    │  [implemented]
+                                          │                                        │
+                                          │  buildTruthModel(snapshot) → TruthModel│
+                                          │  extractDocClaims(snapshot) → DocClaim[]│
+                                          │  detectors(claims, truth) → DriftIssue[]│
+                                          └───────────────────┬────────────────────┘
+                                                              │ DriftIssue[]
+                        ┌─────────────────────────────────────┴──────────────┐
+                        ▼                                                     ▼
+             (return in HTTP response)                          ┌──────────────────────┐
+                                                                │   PostgreSQL          │ [planned]
+                                                                └──────────────────────┘
 ```
+
+Today the analyzer is exercised directly in tests via `loadFixtureRepo(name)`
+(`tests/helpers/loadFixtureRepo.ts`), which walks a fixture directory into a
+`RepoSnapshot`.
 
 ## Data pipeline (step by step)
 
-1. **Input validation** — `POST /api/scans` receives `{ repoUrl }`. Validate it
-   matches `https://github.com/<owner>/<repo>` (optionally with `.git` suffix or
-   trailing slash). Reject anything else (SSRF guard: we only ever construct
-   `api.github.com` URLs server-side from the parsed `owner/repo`, never fetch a
-   user-supplied URL directly).
-2. **Repo metadata** — `GET /repos/{owner}/{repo}` to confirm the repo exists, is
-   public, get the default branch and current commit SHA (`GET
-   /repos/{owner}/{repo}/branches/{default_branch}`).
-3. **Tree fetch** — `GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1` to get
-   the full file tree in one call (subject to GitHub's tree size cap; repos whose
-   tree is truncated are still scanned but flagged in the report as
-   "partial scan").
-4. **JS/TS confirmation** — if no `package.json` exists at repo root, the scan is
-   rejected with a clear error ("DocuDrift currently supports JavaScript/TypeScript
-   repositories only").
-5. **File selection** — from the tree, select a bounded set of "key files":
-   - `README.md` (root; case-insensitive match, first match wins)
-   - `package.json` (root)
-   - env example files: any root-level file matching
-     `.env.example|.env.sample|.env.template` (case-insensitive)
-   - Docker files: `Dockerfile`, `docker-compose.yml`/`docker-compose.yaml` (root)
-   - lockfiles: `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` (root — presence
-     is what matters, most detectors don't need to parse full contents)
-   - a capped set of source files (`src/**/*.{js,ts,jsx,tsx}`, hard cap e.g. 200
-     files / 2 MB total) — only fetched contents for source files are scanned for
-     `process.env.X` usages, and only if the env-var-drift detector needs them
-6. **Content fetch** — for each selected file, `GET
-   /repos/{owner}/{repo}/contents/{path}` (or raw.githubusercontent.com via the
-   blob SHA from the tree) — base64-decoded, size-capped per file (e.g. 1 MB) to
-   avoid pathological repos blowing up memory.
-7. **Parse/normalize** — each file type has a dedicated parser producing a typed,
-   normalized shape (see "Normalized data model" below). Parsing is defensive:
-   a file that fails to parse produces no data for that source, never throws the
-   whole scan.
-8. **Detect** — the Detector Engine runs each registered detector against the
-   normalized data model. Each detector is a pure function:
-   `(NormalizedRepo) => Finding[]`. A detector that throws is caught and skipped
-   (logged), it never fails the whole scan.
-9. **Persist** — write `Repo` (upsert), `Scan`, `Finding[]` rows in one transaction.
-10. **Respond** — return the full report as JSON; the same shape is what `GET
-    /api/scans/:id` returns later.
+**Status: steps 6–8 Implemented; steps 1–5, 9–10 Planned**
 
-## Normalized data model (in-memory, pre-detector)
+Planned production pipeline. Steps marked *(implemented)* exist today; the rest
+are the target design for the GitHub-backed path.
+
+1. **Input validation** *(planned)* — `POST /api/scans` receives `{ repoUrl }`.
+   Validate it matches `https://github.com/<owner>/<repo>` (optionally with
+   `.git` suffix or trailing slash). Reject anything else (SSRF guard: only ever
+   construct `api.github.com` URLs server-side from the parsed `owner/repo`,
+   never fetch a user-supplied URL directly).
+2. **Repo metadata** *(planned)* — `GET /repos/{owner}/{repo}` to confirm the
+   repo exists and is public; get default branch and commit SHA.
+3. **Tree fetch** *(planned)* — `GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1`;
+   flag truncation for oversized trees.
+4. **JS/TS confirmation** *(planned)* — reject repos with no root `package.json`.
+5. **File selection** *(planned)* — select a bounded "key files" set: `README.md`,
+   `package.json`, env examples, Docker files, lockfiles, and a capped source
+   file set (`src/**/*.{js,ts,jsx,tsx}`, hard caps on count/size).
+6. **Snapshot assembly** *(implemented)* — the selected files become a
+   `RepoSnapshot` (`{ repo: {owner, name}, files: {path, content}[] }`). In
+   tests this comes from a fixture directory instead of GitHub.
+7. **Parse** *(implemented)* — `buildTruthModel(snapshot)` derives reality facts
+   and `extractDocClaims(snapshot)` derives documentation claims. Parsing is
+   defensive: a malformed `package.json` yields `packageJson: null` rather than
+   throwing.
+8. **Detect** *(implemented)* — `analyzeRepository(snapshot)` runs each detector
+   and returns `DriftIssue[]`. (Per-detector error isolation and severity
+   ordering are planned — see "Detector engine".)
+9. **Persist** *(planned)* — write `Repo` (upsert), `Scan`, and finding rows in
+   one transaction.
+10. **Respond** *(planned)* — return the report JSON; the same shape backs
+    `GET /api/scans/:id`.
+
+## Analyzer data model (in-memory)
+
+**Status: Implemented**
+
+The doc originally specified a single `NormalizedRepo`. The implementation
+instead separates three concerns: the raw snapshot, derived "reality"
+(`TruthModel`), and derived documentation claims (`DocClaim`). Detectors compare
+claims against the truth model. Current shapes (`src/lib/analyzer/types.ts`):
 
 ```ts
-type NormalizedRepo = {
-  repo: { owner: string; name: string; defaultBranch: string; commitSha: string };
-  readme: {
-    raw: string;
-    headings: { text: string; line: number }[];
-    codeBlocks: { lang: string | null; content: string; startLine: number }[];
-    links: { text: string; href: string; line: number }[];
-    envVarsDocumented: { name: string; line: number }[]; // parsed from a config-ish section/table
-  } | null;
+type RepoFile = { path: string; content: string };
+
+type RepoSnapshot = {
+  repo: { owner: string; name: string };
+  files: RepoFile[];
+};
+
+// "Reality" derived from non-doc sources.
+type TruthModel = {
   packageJson: {
-    raw: object;
     scripts: Record<string, string>;
     engines: Record<string, string>;
     version: string | null;
     license: string | null;
-    dependencies: Record<string, string>;
-    devDependencies: Record<string, string>;
   } | null;
-  envExample: { path: string; vars: string[] } | null;
-  docker: {
-    dockerfile: { raw: string; exposedPorts: number[] } | null;
-    compose: { raw: string; services: { name: string; ports: string[]; envKeys: string[] }[] } | null;
-  };
-  lockfiles: { present: ('npm' | 'yarn' | 'pnpm')[] };
-  sourceEnvUsages: { name: string; file: string; line: number }[];
-  fileTree: { path: string; type: 'blob' | 'tree' }[]; // for dead-link checks
-  truncated: boolean; // tree was too large / capped
+  hasRootServerJs: boolean;   // npm start falls back to a root server.js
+  rootFiles: string[];        // root-level paths
+  filePaths: string[];        // every repo path (used for dead-link checks)
 };
+
+// One claim the README makes; a discriminated union on `kind`.
+type DocClaimSource = { file: string; line: number; snippet: string };
+
+type NpmScriptClaim = {
+  kind: 'npm-script';
+  command: string;      // "npm run build"
+  scriptName: string;   // "build"
+  source: DocClaimSource;
+};
+
+type FileReferenceClaim = {
+  kind: 'file-reference';
+  rawText: string;      // path as written, e.g. "./src/App.jsx"
+  path: string;         // normalized repo-relative path
+  source: DocClaimSource;
+};
+
+type DocClaim = NpmScriptClaim | FileReferenceClaim;
 ```
+
+**Not yet modeled** (planned as more parsers/detectors land): structured README
+(headings, code blocks, links, documented env vars), `package.json`
+dependencies/devDependencies, env-example vars, Docker ports/env, lockfile
+presence, `process.env.X` source usages, `defaultBranch`/`commitSha`, and a
+`truncated` flag. These extend `TruthModel`/`DocClaim` as needed.
 
 ## Detector engine
 
-- Detectors are registered in a single array with a stable `id`, `title`, and
-  `severity` default. Each implements:
-  `run(repo: NormalizedRepo): Omit<Finding, 'id' | 'scanId'>[]`.
-- Engine runs all detectors, flattens results, assigns IDs, and returns them
-  ordered by severity (error → warning → info) then detector order.
-- Detector list (maps to Product Spec table): `missing-scripts`,
+**Status: Partial — 2 of 10 detectors; no registry yet**
+
+- Detectors are plain functions `(claims: DocClaim[], truth: TruthModel) =>
+  DriftIssue[]`. `analyzeRepository()` calls them and concatenates results.
+- **Not yet built:** a detector registry, per-detector error isolation
+  (catch-and-skip), and severity ordering. Today detectors run in a fixed order
+  and each assigns its own `id`.
+- **Implemented detectors:**
+  - `commandDriftDetector` (id `command-drift`) — README `npm run X` / `npm
+    start` / `npm test` with no matching `package.json` script. Special case:
+    `npm start` is not flagged when a root `server.js` exists.
+  - `fileReferenceDriftDetector` (id `file-reference-drift`) — README references
+    to file paths that don't exist, with a fuzzy closest-path suggestion
+    (`levenshtein`/`closestMatch` in `fuzzyMatch.ts`). URLs and package names are
+    filtered out upstream in `extractDocClaims`.
+- **Planned detectors** (see [PRODUCT_SPEC.md](./PRODUCT_SPEC.md)):
   `package-manager-mismatch`, `multiple-lockfiles`, `env-var-drift`,
-  `node-engine-mismatch`, `docker-drift`, `dead-links`, `license-mismatch`,
+  `node-engine-mismatch`, `docker-drift`, plus stretch: `license-mismatch`,
   `version-badge-drift`, `missing-core-sections`.
-- Each `Finding` shape:
+
+The finding shape is `DriftIssue` (the doc previously called this `Finding`):
 
 ```ts
-type Finding = {
-  id: string;
-  scanId: string;
+type DriftSeverity = 'error' | 'warning' | 'info';
+
+type DriftEvidence = {
+  label: string;   // e.g. "README", "package.json"
+  file: string;
+  line: number;
+  snippet: string;
+};
+
+type DriftIssue = {
+  id: string;          // e.g. "command-drift:build:14"
   detectorId: string;
-  severity: 'error' | 'warning' | 'info';
+  severity: DriftSeverity;
   title: string;
   description: string;
-  evidence: {
-    label: string; // e.g. "README", "package.json"
-    file: string;
-    startLine: number;
-    endLine: number;
-    snippet: string;
-  }[];
+  evidence: DriftEvidence[];
   suggestedFix: string;
 };
 ```
 
+Note: the product spec's "medium" severity maps to `warning` in this model
+(`error`/`warning`/`info`). When findings are persisted, `scanId` will be added
+by the persistence layer rather than living on the in-memory `DriftIssue`.
+
 ## API routes
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/api/scans` | Body `{ repoUrl }`. Runs the full pipeline synchronously, persists, returns the created `Scan` + `Finding[]` (report). |
-| `GET` | `/api/scans/:id` | Returns a previously stored report by scan ID. |
-| `GET` | `/api/scans` | Lists recent scans (paginated: id, repo, createdAt, summary counts) — for a lightweight history view. |
-| `GET` | `/api/health` | Liveness check. |
+**Status: `/api/health` Implemented; scan routes Planned**
 
-Error responses use a consistent shape `{ error: { code, message } }` with codes
-like `INVALID_URL`, `REPO_NOT_FOUND`, `REPO_PRIVATE`, `NOT_JS_TS`, `RATE_LIMITED`,
-`REPO_TOO_LARGE`, `GITHUB_UPSTREAM_ERROR`.
+| Method | Path | Status | Purpose |
+|--------|------|--------|---------|
+| `GET` | `/api/health` | **Implemented** | Liveness check, returns `{ status: "ok" }`. |
+| `POST` | `/api/scans` | Planned | Body `{ repoUrl }`. Runs the pipeline synchronously, persists, returns the report. |
+| `GET` | `/api/scans/:id` | Planned | Returns a stored report by scan ID. |
+| `GET` | `/api/scans` | Planned | Paginated recent-scans list. |
+
+Planned error responses use a consistent shape `{ error: { code, message } }`
+with codes like `INVALID_URL`, `REPO_NOT_FOUND`, `REPO_PRIVATE`, `NOT_JS_TS`,
+`RATE_LIMITED`, `REPO_TOO_LARGE`, `GITHUB_UPSTREAM_ERROR`.
 
 ## Database models (Prisma / Postgres)
+
+**Status: Planned — schema is a placeholder, not migrated**
+
+`prisma/schema.prisma` currently contains only the `generator` and `datasource`
+blocks; the models below are the target design and have **not** been added or
+migrated yet. Nothing is persisted; the analyzer returns findings in-memory.
 
 ```prisma
 model Repo {
@@ -213,7 +269,7 @@ model Finding {
   severity      Severity
   title         String
   description   String
-  evidence      Json     // Finding['evidence'] shape, stored as JSON
+  evidence      Json     // DriftIssue['evidence'] shape, stored as JSON
   suggestedFix  String
 }
 
@@ -224,70 +280,69 @@ enum Severity {
 }
 ```
 
-No `FetchedFile` table at MVP — raw fetched file contents are not persisted (only
-derived findings are), keeping storage small and side-stepping any question of
-caching/staleness of third-party content. This can be added later if caching
-across scans becomes a performance need.
+No `FetchedFile` table at MVP — raw fetched file contents are not persisted
+(only derived findings are), keeping storage small and side-stepping
+caching/staleness of third-party content.
 
 ## GitHub API constraints & handling
 
+**Status: Planned — no fetch layer built yet**
+
 - Unauthenticated REST API is capped at 60 requests/hour per IP. A single scan
-  uses ~3–8 requests (repo metadata, branch, tree, N file contents). This is
-  workable for demo/low-volume use but will need a `GITHUB_TOKEN` env var
-  (optional, server-side only, never exposed to the client) as a fast follow if
-  usage grows — the fetch layer should read an optional token from the start so
-  this is a config change, not a code change.
+  will use ~3–8 requests. An optional server-side `GITHUB_TOKEN` env var (never
+  exposed to the client) is planned to raise limits — the fetch layer should
+  read it from the start so raising limits is a config change, not a code change.
 - On `403` rate-limit responses, surface `RATE_LIMITED` with the reset time from
   the `X-RateLimit-Reset` header.
-- Per-file size cap and total-file-count cap (see File selection) protect against
-  pathological repos; exceeding the tree size cap sets `truncated: true` on the
-  scan rather than failing it.
-- All outbound GitHub calls have a request timeout (e.g. 10s) and the overall
-  scan has a wall-clock budget (e.g. 30s) after which it fails with a clear
-  `GITHUB_UPSTREAM_ERROR`.
+- Per-file size cap and total-file-count cap protect against pathological repos;
+  exceeding the tree size cap sets a `truncated` flag rather than failing.
+- Outbound GitHub calls get a request timeout (~10s) and the overall scan a
+  wall-clock budget (~30s), after which it fails with `GITHUB_UPSTREAM_ERROR`.
 
 ## Security considerations
 
+**Status: Planned — applies once the fetch layer and report UI exist**
+
 - **SSRF**: the server never fetches a client-supplied URL directly. The client
-  URL is parsed into `{owner, repo}` and only ever used to build
-  `api.github.com/...` URLs. Reject anything that doesn't match the expected
-  GitHub URL shape before any network call is made.
-- **XSS**: README content and code snippets are rendered as text/markdown on the
-  frontend through a sanitizing markdown renderer (no raw HTML passthrough).
-- **Resource limits**: per-file size cap, total file count/size cap, request and
-  scan timeouts (above) prevent memory/time exhaustion from a single request.
+  URL is parsed into `{owner, repo}` and only used to build `api.github.com/...`
+  URLs; anything not matching the expected GitHub URL shape is rejected before
+  any network call.
+- **XSS**: README content and code snippets render through a sanitizing markdown
+  renderer (no raw HTML passthrough).
+- **Resource limits**: per-file and total size/count caps plus request/scan
+  timeouts prevent memory/time exhaustion from a single request.
 - **No secrets stored**: env var *names* are compared/displayed, never values.
 
 ## Frontend structure
 
-- `POST /api/scans` triggered from a single-input landing page; while awaiting
-  the response the UI shows a loading state (this can take a few seconds — set
-  expectations with a progress indicator, not a spinner-only wait).
-- Report view renders summary counts + a findings list; each finding expands to
-  show evidence panes side by side with file/line labels and the suggested fix.
-- `/scans/:id` route re-fetches via `GET /api/scans/:id` for shareable/bookmarkable
-  report links; `/scans` (or a "recent scans" panel) lists history via
-  `GET /api/scans`.
+**Status: Partial — static landing stub only**
+
+- Implemented: a landing page (`src/app/page.tsx`) with a single URL input. The
+  submit button is currently **disabled** — scanning is not wired up.
+- Planned: submit triggers `POST /api/scans` with a loading state; a report view
+  renders severity summary counts + a findings list, each finding expandable to
+  show evidence panes (file/line labels) and the suggested fix; a `/scans/:id`
+  route re-fetches a stored report for shareable links; a recent-scans history
+  view lists scans via `GET /api/scans`.
 
 ## Test strategy
 
-- **Detector unit tests** (Vitest): each detector gets fixture-based tests —
-  construct a minimal `NormalizedRepo` fixture that should/shouldn't trigger it,
-  assert exact `Finding[]` output. This is the highest-value test layer since
-  detectors are pure functions.
-- **Parser unit tests**: each normalizer (README, package.json, env, Docker,
-  lockfile presence) tested against realistic sample file contents, including
-  malformed/edge-case input (no crashes, graceful partial results).
-- **GitHub fetch layer tests**: HTTP mocked with `nock`/MSW — cover happy path,
-  404 (repo not found), 403 (rate limited), truncated tree, non-JS/TS repo
-  rejection — no real network calls in the test suite.
-- **API integration tests** (Supertest): hit `/api/scans`, `/api/scans/:id`,
-  `/api/scans` against a test Postgres (or SQLite/in-memory equivalent via
-  Prisma test setup), with the GitHub layer mocked underneath.
-- **Frontend component tests** (React Testing Library): report rendering from a
-  fixed report JSON fixture (summary counts, finding expand/collapse, evidence
-  display), form validation on the URL input, error states.
-- **Manual smoke test**: run a scan against a small number of real, well-known
-  public JS/TS repos as a manual sanity check before considering the MVP done —
-  not part of CI (avoids burning rate limits / flaky external dependency in
-  automated tests).
+**Status: detector tests Implemented; other layers Planned**
+
+- **Detector/analyzer tests** (Vitest) — *implemented.* Each detector has
+  fixture-based tests (`tests/analyzer/*.test.ts`) that load a fake repo from
+  `tests/fixtures/repos/<name>` via `loadFixtureRepo()` and assert the resulting
+  `DriftIssue[]` (both should-fire and should-not-fire cases). Fixture repos are
+  real directories on disk, excluded from ESLint.
+- **Parser edge-case tests** — *planned.* Dedicated malformed/empty-input tests
+  for each parser as they grow (never throw, graceful partial results).
+- **GitHub fetch layer tests** — *planned.* HTTP mocked with `nock`/MSW covering
+  happy path, 404, 403 rate-limit, truncated tree, non-JS/TS rejection; no real
+  network in the suite.
+- **API integration tests** (Supertest) — *planned.* Exercise the scan routes
+  against a test database with the GitHub layer mocked underneath.
+- **Frontend component tests** (React Testing Library) — *planned.* Report
+  rendering from a fixed report fixture, input validation, error states.
+- **Manual smoke test** — *planned.* Run against a few real public JS/TS repos
+  before calling the MVP done; not part of CI (avoids burning rate limits and
+  flaky external dependencies).

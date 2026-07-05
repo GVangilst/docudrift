@@ -3,18 +3,27 @@
 Reference: [PRODUCT_SPEC.md](./PRODUCT_SPEC.md), [ARCHITECTURE.md](./ARCHITECTURE.md).
 Order matters — each phase should be working and tested before the next starts.
 
+Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
+
+> **Stack note:** built as a single **Next.js (App Router) + TypeScript** app,
+> not the split Express API / Vite SPA originally planned. API routes live at
+> `src/app/api/**/route.ts`; the analyzer core lives under `src/lib/analyzer`
+> and uses `RepoSnapshot`/`TruthModel`/`DocClaim`/`DriftIssue`. ARCHITECTURE.md
+> has been reconciled to match (each section tagged Implemented/Partial/Planned).
+
 ## Phase 0 — Project setup
 
-- [ ] Init git repo, base `.gitignore` (node_modules, `.env`, dist/build)
-- [ ] Monorepo layout: `apps/api` (Express + TS), `apps/web` (React + Vite), or
-      simple `server/` + `client/` split — pick one, document in root README
-- [ ] `apps/api`: TS config, Express app skeleton, `GET /api/health`
-- [ ] Prisma installed, connected to local Postgres, `Repo`/`Scan`/`Finding`/enums
-      migrated per ARCHITECTURE.md schema
-- [ ] `apps/web`: Vite + React + TS skeleton, single landing page stub
-- [ ] Vitest configured in `apps/api`; RTL + Vitest (or Jest) configured in
-      `apps/web`
-- [ ] CI (or local script) runs typecheck + lint + tests on both apps
+- [x] Init git repo, base `.gitignore` (node_modules, `.env`, build, logs, db files)
+- [x] App layout: single Next.js app (App Router, `src/`, Tailwind, ESLint) —
+      replaces the earlier `apps/api` + `apps/web` split
+- [x] TS config + API health route: `GET /api/health` (`src/app/api/health/route.ts`)
+- [~] Prisma installed; placeholder schema (generator + postgres datasource only).
+      `Repo`/`Scan`/`Finding` models NOT yet defined or migrated; no local Postgres
+      connection wired up
+- [x] Landing page stub (`src/app/page.tsx`)
+- [x] Vitest configured (`vitest.config.ts`, `npm test`) + `typecheck`/`lint` scripts
+      (RTL/jsdom installed but not yet exercised — analyzer tests run in node env)
+- [ ] CI runs typecheck + lint + tests (local npm scripts exist; no CI workflow yet)
 
 ## Phase 1 — GitHub fetch layer
 
@@ -33,30 +42,41 @@ Order matters — each phase should be working and tested before the next starts
 
 ## Phase 2 — Parsers / normalizers
 
-- [ ] README parser: headings, fenced code blocks (with language), links,
-      best-effort "documented env vars" extraction from a config/env section
-- [ ] `package.json` parser: scripts, engines, version, license, deps/devDeps
+> Implemented as `buildTruthModel()` (reality) + `extractDocClaims()` (doc claims)
+> over a `RepoSnapshot`, rather than a single `NormalizedRepo`.
+
+- [~] README claim extraction (`extractDocClaims`): `npm run/start/test` commands
+      and file-path references. Full heading/code-block/link/env-var normalization
+      not yet done
+- [~] `package.json` parsing (in `buildTruthModel`): scripts, engines, version,
+      license. deps/devDeps not yet captured
 - [ ] Env example parser: variable names from `.env.example`-style files
 - [ ] Dockerfile parser: `EXPOSE` ports
 - [ ] docker-compose parser: services, ports, env keys
 - [ ] Lockfile presence detector (npm/yarn/pnpm)
 - [ ] Source scanner: `process.env.X` usages (capped file set)
-- [ ] Assemble `NormalizedRepo` from all of the above
-- [ ] Tests: each parser against realistic fixture files + malformed/edge-case
-      input (empty file, no matches, weird formatting) — never throws
+- [~] Truth model assembled (`TruthModel`: packageJson, rootFiles, filePaths,
+      hasRootServerJs) — grows as more parsers land
+- [~] Tests: analyzer covered via fixture repos under `tests/fixtures/repos`;
+      dedicated malformed/edge-case parser tests still to add
 
 ## Phase 3 — Detector engine
 
-- [ ] Detector registry + engine (`run(repo) => Finding[]`, per-detector error
-      isolation, ordering by severity)
-- [ ] Implement MVP-critical detectors: `missing-scripts`,
-      `package-manager-mismatch`, `multiple-lockfiles`, `env-var-drift`,
-      `node-engine-mismatch`, `docker-drift`, `dead-links`
+> Detectors currently run via `analyzeRepository()`; a formal registry with
+> per-detector error isolation and severity ordering is not built yet.
+
+- [~] Detector engine: `analyzeRepository()` runs detectors → `DriftIssue[]`.
+      Registry / error isolation / severity ordering still to add
+- [~] MVP-critical detectors — 2 of 7 done:
+  - [x] `commandDriftDetector` (covers `missing-scripts`)
+  - [x] `fileReferenceDriftDetector` (covers `dead-links`, w/ fuzzy path suggestion)
+  - [ ] `package-manager-mismatch`, `multiple-lockfiles`, `env-var-drift`,
+        `node-engine-mismatch`, `docker-drift`
 - [ ] Implement stretch detectors if time allows: `license-mismatch`,
       `version-badge-drift`, `missing-core-sections`
-- [ ] Each detector ships with its own fixture-based unit tests (should-fire and
-      should-not-fire cases) per ARCHITECTURE.md test strategy
-- [ ] Suggested-fix templates written for every detector (plain string, no AI)
+- [~] Each detector ships fixture-based unit tests (done for the 2 built:
+      `tests/analyzer/*.test.ts`, should-fire + should-not-fire cases)
+- [~] Suggested-fix templates (done for the 2 built; plain strings, no AI)
 
 ## Phase 4 — API
 
