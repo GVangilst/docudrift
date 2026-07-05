@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Fixture repos are fake project data for tests, not real source.
+    "tests/fixtures/**",
   ]),
 ]);
 
