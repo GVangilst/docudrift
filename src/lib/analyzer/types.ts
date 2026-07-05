@@ -55,12 +55,21 @@ export type NodeVersionRequirement = {
   line: number;
 };
 
-/** Docker-related files present in the repo. */
+/** A published port mapping, `host:container` (host is null for a bare port). */
+export type PortMapping = { host: number | null; container: number };
+
+/** Docker-related files and parsed config present in the repo. */
 export type DockerInfo = {
   hasDockerfile: boolean;
   dockerfilePaths: string[];
   hasComposeFile: boolean;
   composeFilePaths: string[];
+  /** Container ports declared via Dockerfile `EXPOSE`. */
+  exposedPorts: number[];
+  /** Port mappings declared in compose `ports:` blocks. */
+  composePorts: PortMapping[];
+  /** Env keys the compose config needs from the host (bare `- KEY` or `${KEY}`). */
+  requiredEnvKeys: string[];
 };
 
 /**
@@ -170,6 +179,10 @@ export type DockerCommandClaim = {
   raw: string;
   /** For `docker build -f <file>`, the specified Dockerfile path. */
   dockerfile?: string;
+  /** Port mappings from `docker run -p H:C` flags. */
+  ports?: PortMapping[];
+  /** Env keys from `docker run -e KEY` flags. */
+  envKeys?: string[];
   source: DocClaimSource;
 };
 

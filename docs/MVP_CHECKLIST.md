@@ -54,8 +54,10 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
       (`envVars.ts`)
 - [x] Docker file presence detector: Dockerfile(.dev/.prod), docker-compose.*,
       compose.* (`docker.ts` → `TruthModel.docker`)
-- [ ] Dockerfile parser: `EXPOSE` ports (deeper port/env drift — not built)
-- [ ] docker-compose parser: services, ports, env keys (deeper drift — not built)
+- [x] Dockerfile parser: `EXPOSE` ports (`docker.ts` → `docker.exposedPorts`)
+- [x] docker-compose parser: ports + host-required env keys (`docker.ts` →
+      `docker.composePorts`, `docker.requiredEnvKeys`; full YAML/services parse
+      not needed for current drift checks)
 - [x] Lockfile presence detector (npm/yarn/pnpm/bun) — `buildTruthModel`
       (`lockfiles`, inferred `packageManager`)
 - [x] Source scanner: `process.env.X` / `import.meta.env.X` usages (`envVars.ts`;
@@ -64,7 +66,8 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
       .node-version, .tool-versions (`nodeVersions.ts`)
 - [~] Truth model assembled (`TruthModel`: packageJson, rootFiles, filePaths,
       hasRootServerJs, envVarsFromExamples, envVarsFromCode, lockfiles,
-      packageManager, nodeVersionRequirements, docker) — grows as more parsers land
+      packageManager, nodeVersionRequirements, docker{files,exposedPorts,
+      composePorts,requiredEnvKeys}) — grows as more parsers land
 - [~] Tests: analyzer covered via fixture repos under `tests/fixtures/repos`;
       dedicated malformed/edge-case parser tests still to add
 
@@ -85,7 +88,9 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
   - [x] `nodeEngineMismatchDetector` (covers `node-engine-mismatch`; README/nvm
         vs engines.node/.nvmrc/.node-version/.tool-versions/volta, semver-based)
   - [x] `dockerDriftDetector` (covers `docker-drift`; docker build/-f/compose vs
-        Dockerfile(.dev/.prod)/compose files; ignores URLs & prereq mentions)
+        Dockerfile(.dev/.prod)/compose files; ignores URLs & prereq mentions.
+        Also port drift: `docker run -p` container port vs `EXPOSE`/compose
+        ports; and compose host-required env vars undocumented in README/.env)
 - [ ] Implement stretch detectors if time allows: `license-mismatch`,
       `version-badge-drift`, `missing-core-sections`
 - [~] Each detector ships fixture-based unit tests (done for all 7:

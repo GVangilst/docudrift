@@ -1,4 +1,10 @@
-import type { DockerCommandClaim, DocClaim, DriftIssue, TruthModel } from '../types';
+import type {
+  DockerCommandClaim,
+  DocClaim,
+  DriftIssue,
+  EnvVarClaim,
+  TruthModel,
+} from '../types';
 
 const DETECTOR_ID = 'docker-drift';
 const COMPOSE_FILE_NAMES = 'docker-compose.yml, docker-compose.yaml, compose.yml, or compose.yaml';
@@ -13,6 +19,17 @@ function dockerfileExists(file: string, truth: TruthModel): boolean {
     truth.filePaths.includes(file) ||
     truth.docker.dockerfilePaths.some((path) => basename(path) === file)
   );
+}
+
+/**
+ * Ports the repo's images actually listen on: Dockerfile `EXPOSE` plus the
+ * container side of each compose port mapping.
+ */
+function repoContainerPorts(truth: TruthModel): Set<number> {
+  return new Set<number>([
+    ...truth.docker.exposedPorts,
+    ...truth.docker.composePorts.map((mapping) => mapping.container),
+  ]);
 }
 
 /**
@@ -100,7 +117,50 @@ export function dockerDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
       continue;
     }
 
-    // `docker run` alone is not flagged — the image may be pulled from a registry.
+    if (claim.command === 'run' && claim.ports) {
+      // Bare `docker run` isn't flagged, but a `-p H:C` whose container port
+      // isn't exposed by the image is drift ("wrong port, not working").
+      const targetPorts = repoContainerPorts(truth);
+      if (targetPorts.size === 0) continue;
+      const exposedList = [...targetPorts].sort((a, b) => a - b).join(', ');
+
+      for (const mapping of claim.ports) {
+        if (targetPorts.has(mapping.container)) continue;
+        push(`port:${mapping.container}`, {
+          id: `${DETECTOR_ID}:port-mismatch:${mapping.container}`,
+          detectorId: DETECTOR_ID,
+          severity: 'error',
+          title: `README maps container port ${mapping.container} but the image exposes ${exposedList}`,
+          description: `The README documents \`${claim.raw}\`, which targets container port ${mapping.container}, but the repo's Docker config exposes ${exposedList}.`,
+          evidence: [readmeEvidence],
+          suggestedFix: `Map one of the exposed ports (${exposedList}), or update the Dockerfile \`EXPOSE\`/compose \`ports\` to include ${mapping.container}.`,
+        });
+      }
+    }
+  }
+
+  // Env drift: env vars the compose config needs from the host but that are
+  // undocumented in the README, absent from .env.example, and unused in source.
+  if (docker.requiredEnvKeys.length > 0) {
+    const documented = new Set(
+      claims.filter((claim): claim is EnvVarClaim => claim.kind === 'env-var').map((c) => c.name),
+    );
+    const inExample = new Set(truth.envVarsFromExamples.map((occ) => occ.name));
+    const inCode = new Set(truth.envVarsFromCode.map((occ) => occ.name));
+    const composeFile = docker.composeFilePaths[0] ?? 'docker-compose.yml';
+
+    for (const key of docker.requiredEnvKeys) {
+      if (documented.has(key) || inExample.has(key) || inCode.has(key)) continue;
+      push(`env:${key}`, {
+        id: `${DETECTOR_ID}:env-undocumented:${key}`,
+        detectorId: DETECTOR_ID,
+        severity: 'warning',
+        title: `Compose requires env var \`${key}\` but it is undocumented`,
+        description: `${composeFile} requires the \`${key}\` environment variable from the host, but it is not documented in the README or present in any .env example file.`,
+        evidence: [{ label: composeFile, file: composeFile, line: 1, snippet: key }],
+        suggestedFix: `Document \`${key}\` in the README and add it to .env.example.`,
+      });
+    }
   }
 
   return issues;

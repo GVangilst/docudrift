@@ -1,3 +1,4 @@
+import { parsePortMapping } from './docker';
 import { findRootFileCaseInsensitive } from './repoSnapshot';
 import type {
   DockerCommandClaim,
@@ -10,6 +11,7 @@ import type {
   NpmScriptClaim,
   PackageCommandClaim,
   PackageManager,
+  PortMapping,
   RepoSnapshot,
 } from './types';
 
@@ -187,23 +189,57 @@ function extractNodeVersionClaims(line: string, source: DocClaimSource): NodeVer
   return claims;
 }
 
+function parseRunPorts(command: string): PortMapping[] {
+  const ports: PortMapping[] = [];
+  for (const match of command.matchAll(/(?:-p|--publish)[\s=]+(\S+)/g)) {
+    const mapping = parsePortMapping(match[1]);
+    if (mapping) ports.push(mapping);
+  }
+  return ports;
+}
+
+function parseRunEnvKeys(command: string): string[] {
+  const keys: string[] = [];
+  for (const match of command.matchAll(/(?:-e|--env)[\s=]+([A-Za-z_][A-Za-z0-9_]*)/g)) {
+    keys.push(match[1]);
+  }
+  return keys;
+}
+
 function extractDockerCommandClaims(line: string, source: DocClaimSource): DockerCommandClaim[] {
   const claims: DockerCommandClaim[] = [];
   const seen = new Set<string>();
 
-  const add = (command: DockerCommandKind, raw: string, dockerfile?: string) => {
-    const key = `${command}:${dockerfile ?? ''}`;
+  const add = (
+    command: DockerCommandKind,
+    raw: string,
+    extra?: { dockerfile?: string; ports?: PortMapping[]; envKeys?: string[] },
+  ) => {
+    const key = `${command}:${extra?.dockerfile ?? ''}`;
     if (seen.has(key)) return;
     seen.add(key);
-    claims.push({ kind: 'docker-command', command, raw: raw.trim(), dockerfile, source });
+    claims.push({
+      kind: 'docker-command',
+      command,
+      raw: raw.trim(),
+      dockerfile: extra?.dockerfile,
+      ports: extra?.ports?.length ? extra.ports : undefined,
+      envKeys: extra?.envKeys?.length ? extra.envKeys : undefined,
+      source,
+    });
   };
 
   for (const match of line.matchAll(DOCKER_COMPOSE_RE)) add('compose', match[0]);
   for (const match of line.matchAll(DOCKER_BUILD_RE)) {
     const fileMatch = DOCKER_BUILD_FILE_RE.exec(match[0]);
-    add('build', match[0], fileMatch ? fileMatch[1] : undefined);
+    add('build', match[0], { dockerfile: fileMatch ? fileMatch[1] : undefined });
   }
-  for (const match of line.matchAll(DOCKER_RUN_RE)) add('run', match[0]);
+  for (const match of line.matchAll(DOCKER_RUN_RE)) {
+    add('run', match[0], {
+      ports: parseRunPorts(match[0]),
+      envKeys: parseRunEnvKeys(match[0]),
+    });
+  }
 
   return claims;
 }
