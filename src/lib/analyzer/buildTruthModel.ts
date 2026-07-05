@@ -36,5 +36,6 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     packageJson,
     hasRootServerJs: rootFiles.includes('server.js'),
     rootFiles,
+    filePaths: snapshot.files.map((file) => file.path),
   };
 }

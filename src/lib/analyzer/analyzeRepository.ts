@@ -1,5 +1,6 @@
 import { buildTruthModel } from './buildTruthModel';
 import { commandDriftDetector } from './detectors/commandDriftDetector';
+import { fileReferenceDriftDetector } from './detectors/fileReferenceDriftDetector';
 import { extractDocClaims } from './extractDocClaims';
 import type { DriftIssue, RepoSnapshot } from './types';
 
@@ -11,5 +12,8 @@ export function analyzeRepository(snapshot: RepoSnapshot): DriftIssue[] {
   const truth = buildTruthModel(snapshot);
   const claims = extractDocClaims(snapshot);
 
-  return [...commandDriftDetector(claims, truth)];
+  return [
+    ...commandDriftDetector(claims, truth),
+    ...fileReferenceDriftDetector(claims, truth),
+  ];
 }

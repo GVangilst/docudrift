@@ -33,27 +33,45 @@ export type TruthModel = {
   } | null;
   hasRootServerJs: boolean;
   rootFiles: string[];
+  /** Every file path in the repo, root-relative and posix-style. */
+  filePaths: string[];
 };
 
 /** The kinds of claims extractDocClaims currently knows how to find. */
-export type DocClaimKind = 'npm-script';
+export type DocClaimKind = 'npm-script' | 'file-reference';
 
-/**
- * A single claim made by the documentation, e.g. "run `npm run build`".
- * Detectors check claims like this against the TruthModel.
- */
-export type DocClaim = {
-  kind: DocClaimKind;
+/** Where a claim was found in the documentation. */
+export type DocClaimSource = {
+  file: string;
+  line: number;
+  snippet: string;
+};
+
+/** A claim that a given npm script exists, e.g. "run `npm run build`". */
+export type NpmScriptClaim = {
+  kind: 'npm-script';
   /** The full command text as it appears in the doc, e.g. "npm run build". */
   command: string;
   /** The package.json script name this claim depends on, e.g. "build". */
   scriptName: string;
-  source: {
-    file: string;
-    line: number;
-    snippet: string;
-  };
+  source: DocClaimSource;
 };
+
+/** A claim that references a repository file path, e.g. "see `src/App.jsx`". */
+export type FileReferenceClaim = {
+  kind: 'file-reference';
+  /** The reference exactly as written in the doc, e.g. "./src/App.jsx". */
+  rawText: string;
+  /** The normalized, repo-relative path the reference points to. */
+  path: string;
+  source: DocClaimSource;
+};
+
+/**
+ * A single claim made by the documentation. Detectors check claims like this
+ * against the TruthModel.
+ */
+export type DocClaim = NpmScriptClaim | FileReferenceClaim;
 
 export type DriftSeverity = 'error' | 'warning' | 'info';
 
