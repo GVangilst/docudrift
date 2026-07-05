@@ -5,6 +5,8 @@ import type {
   EnvVarClaim,
   FileReferenceClaim,
   NpmScriptClaim,
+  PackageCommandClaim,
+  PackageManager,
   RepoSnapshot,
 } from './types';
 
@@ -18,6 +20,16 @@ const ENV_ASSIGNMENT_DOC_RE = /([A-Z][A-Z0-9_]*)=(?!=)/g;
 // A SCREAMING_SNAKE_CASE token in prose, e.g. "set DATABASE_URL in .env".
 // Requiring an underscore keeps single-word acronyms (API, URL, MIT) out.
 const ENV_SNAKE_RE = /\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g;
+
+// Package-manager invocations: `<manager> <subcommand> [args...]`. Requiring a
+// known subcommand keeps prose like "npm is great" from matching. The trailing
+// group captures the rest of the command (e.g. the "dev" in "npm run dev").
+const PM_SUBCOMMANDS =
+  'install|i|ci|add|remove|rm|run|run-script|start|test|dev|build|lint|serve|preview|watch|exec|dlx|create|init|update|up|upgrade|publish|link|x';
+const PM_COMMAND_RE = new RegExp(
+  `\\b(npm|yarn|pnpm|bun)\\s+(?:${PM_SUBCOMMANDS})\\b(?:\\s+[@\\w:./-]+)*`,
+  'g',
+);
 
 // Markdown link destination: the `dest` in `[text](dest)`.
 const MARKDOWN_LINK_DEST_RE = /\]\(\s*([^)\s]+)/g;
@@ -119,6 +131,24 @@ function extractEnvVarClaims(line: string, source: DocClaimSource): EnvVarClaim[
   return claims;
 }
 
+function extractPackageCommandClaims(
+  line: string,
+  source: DocClaimSource,
+): PackageCommandClaim[] {
+  const claims: PackageCommandClaim[] = [];
+
+  for (const match of line.matchAll(PM_COMMAND_RE)) {
+    claims.push({
+      kind: 'command',
+      packageManager: match[1] as PackageManager,
+      command: match[0].trim(),
+      source,
+    });
+  }
+
+  return claims;
+}
+
 /**
  * Extracts the claims the README makes: npm scripts it says to run, file paths
  * it references, and env vars it documents. Detectors compare these against the
@@ -139,6 +169,7 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
     claims.push(...extractNpmScriptClaims(line, source));
     claims.push(...extractFileReferenceClaims(line, source));
     claims.push(...extractEnvVarClaims(line, source));
+    claims.push(...extractPackageCommandClaims(line, source));
   });
 
   return claims;

@@ -2,6 +2,7 @@ import { buildTruthModel } from './buildTruthModel';
 import { commandDriftDetector } from './detectors/commandDriftDetector';
 import { envVarDriftDetector } from './detectors/envVarDriftDetector';
 import { fileReferenceDriftDetector } from './detectors/fileReferenceDriftDetector';
+import { packageManagerDriftDetector } from './detectors/packageManagerDriftDetector';
 import { extractDocClaims } from './extractDocClaims';
 import type { DriftIssue, RepoSnapshot } from './types';
 
@@ -17,5 +18,6 @@ export function analyzeRepository(snapshot: RepoSnapshot): DriftIssue[] {
     ...commandDriftDetector(claims, truth),
     ...fileReferenceDriftDetector(claims, truth),
     ...envVarDriftDetector(claims, truth),
+    ...packageManagerDriftDetector(claims, truth),
   ];
 }

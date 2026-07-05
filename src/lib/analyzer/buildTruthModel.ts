@@ -5,7 +5,23 @@ import {
   isSourceFile,
 } from './envVars';
 import { getRootFile, listRootFilePaths } from './repoSnapshot';
-import type { EnvVarOccurrence, RepoSnapshot, TruthModel } from './types';
+import type {
+  EnvVarOccurrence,
+  LockfileInfo,
+  PackageManager,
+  RepoSnapshot,
+  TruthModel,
+} from './types';
+
+// Lockfile name → the package manager it implies.
+const LOCKFILE_MANAGERS: { file: string; manager: PackageManager }[] = [
+  { file: 'package-lock.json', manager: 'npm' },
+  { file: 'npm-shrinkwrap.json', manager: 'npm' },
+  { file: 'yarn.lock', manager: 'yarn' },
+  { file: 'pnpm-lock.yaml', manager: 'pnpm' },
+  { file: 'bun.lock', manager: 'bun' },
+  { file: 'bun.lockb', manager: 'bun' },
+];
 
 /**
  * Derives ground-truth facts about the repo from its actual files.
@@ -48,6 +64,14 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     }
   }
 
+  const lockfiles: LockfileInfo[] = LOCKFILE_MANAGERS.filter(({ file }) =>
+    rootFiles.includes(file),
+  ).map(({ file, manager }) => ({ file, manager }));
+
+  const lockfileManagers = new Set(lockfiles.map((lock) => lock.manager));
+  const packageManager: PackageManager | null =
+    lockfileManagers.size === 1 ? [...lockfileManagers][0] : null;
+
   return {
     packageJson,
     hasRootServerJs: rootFiles.includes('server.js'),
@@ -55,5 +79,7 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     filePaths: snapshot.files.map((file) => file.path),
     envVarsFromExamples,
     envVarsFromCode,
+    lockfiles,
+    packageManager,
   };
 }

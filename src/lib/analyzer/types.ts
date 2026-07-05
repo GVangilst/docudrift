@@ -29,6 +29,15 @@ export type EnvVarOccurrence = {
   snippet: string;
 };
 
+/** A JavaScript package manager DocuDrift understands. */
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun';
+
+/** A lockfile found in the repo and the package manager it implies. */
+export type LockfileInfo = {
+  file: string;
+  manager: PackageManager;
+};
+
 /**
  * Facts about the repository derived from non-documentation sources
  * (package.json, file existence, etc). This is "reality" — what doc claims
@@ -49,10 +58,14 @@ export type TruthModel = {
   envVarsFromExamples: EnvVarOccurrence[];
   /** Env var names read in source (process.env.X, import.meta.env.X, etc). */
   envVarsFromCode: EnvVarOccurrence[];
+  /** Lockfiles present at the repo root. */
+  lockfiles: LockfileInfo[];
+  /** Inferred package manager — set only when exactly one manager's lockfile exists. */
+  packageManager: PackageManager | null;
 };
 
 /** The kinds of claims extractDocClaims currently knows how to find. */
-export type DocClaimKind = 'npm-script' | 'file-reference' | 'env-var';
+export type DocClaimKind = 'npm-script' | 'file-reference' | 'env-var' | 'command';
 
 /** Where a claim was found in the documentation. */
 export type DocClaimSource = {
@@ -91,11 +104,25 @@ export type EnvVarClaim = {
   source: DocClaimSource;
 };
 
+/** A claim that documents a package-manager command, e.g. "run `yarn install`". */
+export type PackageCommandClaim = {
+  kind: 'command';
+  /** The package manager the command invokes. */
+  packageManager: PackageManager;
+  /** The command as written, e.g. "yarn install" or "npm run dev". */
+  command: string;
+  source: DocClaimSource;
+};
+
 /**
  * A single claim made by the documentation. Detectors check claims like this
  * against the TruthModel.
  */
-export type DocClaim = NpmScriptClaim | FileReferenceClaim | EnvVarClaim;
+export type DocClaim =
+  | NpmScriptClaim
+  | FileReferenceClaim
+  | EnvVarClaim
+  | PackageCommandClaim;
 
 export type DriftSeverity = 'error' | 'warning' | 'info';
 
