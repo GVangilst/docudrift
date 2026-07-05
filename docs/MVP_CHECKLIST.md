@@ -50,13 +50,16 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
       not yet done
 - [~] `package.json` parsing (in `buildTruthModel`): scripts, engines, version,
       license. deps/devDeps not yet captured
-- [ ] Env example parser: variable names from `.env.example`-style files
+- [x] Env example parser: variable names from `.env.example`-style files
+      (`envVars.ts`)
 - [ ] Dockerfile parser: `EXPOSE` ports
 - [ ] docker-compose parser: services, ports, env keys
 - [ ] Lockfile presence detector (npm/yarn/pnpm)
-- [ ] Source scanner: `process.env.X` usages (capped file set)
+- [x] Source scanner: `process.env.X` / `import.meta.env.X` usages (`envVars.ts`;
+      file-count cap still to add)
 - [~] Truth model assembled (`TruthModel`: packageJson, rootFiles, filePaths,
-      hasRootServerJs) — grows as more parsers land
+      hasRootServerJs, envVarsFromExamples, envVarsFromCode) — grows as more
+      parsers land
 - [~] Tests: analyzer covered via fixture repos under `tests/fixtures/repos`;
       dedicated malformed/edge-case parser tests still to add
 
@@ -67,16 +70,18 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
 
 - [~] Detector engine: `analyzeRepository()` runs detectors → `DriftIssue[]`.
       Registry / error isolation / severity ordering still to add
-- [~] MVP-critical detectors — 2 of 7 done:
+- [~] MVP-critical detectors — 3 of 7 done:
   - [x] `commandDriftDetector` (covers `missing-scripts`)
   - [x] `fileReferenceDriftDetector` (covers `dead-links`, w/ fuzzy path suggestion)
-  - [ ] `package-manager-mismatch`, `multiple-lockfiles`, `env-var-drift`,
+  - [x] `envVarDriftDetector` (covers `env-var-drift`; README vs `.env.example`
+        vs `process.env`/`import.meta.env`, with value redaction)
+  - [ ] `package-manager-mismatch`, `multiple-lockfiles`,
         `node-engine-mismatch`, `docker-drift`
 - [ ] Implement stretch detectors if time allows: `license-mismatch`,
       `version-badge-drift`, `missing-core-sections`
-- [~] Each detector ships fixture-based unit tests (done for the 2 built:
+- [~] Each detector ships fixture-based unit tests (done for the 3 built:
       `tests/analyzer/*.test.ts`, should-fire + should-not-fire cases)
-- [~] Suggested-fix templates (done for the 2 built; plain strings, no AI)
+- [~] Suggested-fix templates (done for the 3 built; plain strings, no AI)
 
 ## Phase 4 — API
 
