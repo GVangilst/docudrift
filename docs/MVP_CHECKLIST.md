@@ -21,8 +21,9 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
       `Repo`/`Scan`/`Finding` models NOT yet defined or migrated; no local Postgres
       connection wired up
 - [x] Landing page stub (`src/app/page.tsx`)
-- [x] Vitest configured (`vitest.config.ts`, `npm test`) + `typecheck`/`lint` scripts
-      (RTL/jsdom installed but not yet exercised — analyzer tests run in node env)
+- [x] Vitest configured (`vitest.config.ts`, `npm test`) + `typecheck`/`lint` scripts.
+      Analyzer/API tests run in node; component tests opt into jsdom + RTL via a
+      `// @vitest-environment jsdom` docblock
 - [ ] CI runs typecheck + lint + tests (local npm scripts exist; no CI workflow yet)
 
 ## Phase 1 — GitHub fetch layer
@@ -121,16 +122,24 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
 
 ## Phase 5 — Frontend
 
-- [ ] Landing page: single URL input, submit, loading state, error display
-- [ ] Report view: repo header, severity summary counts, findings list
-- [ ] Finding detail: expandable evidence (side-by-side file/line snippets),
-      suggested fix text
-- [ ] Empty state: "No drift detected"
-- [ ] `/scans/:id` route loads a stored report by ID (shareable link)
-- [ ] Recent scans list/history view
-- [ ] Markdown/snippet rendering sanitized (no raw HTML passthrough)
-- [ ] Tests: RTL tests for report rendering from fixture JSON, input validation,
-      error states
+> Client-side single-page UI (`src/components/`), calls `POST /api/scans`. No
+> persistence, so sharing is via `?repo=` deep-link (prefills + auto-runs)
+> rather than `/scans/:id`.
+
+- [x] Landing page: single URL input, submit, loading state, error display
+      (`ScanApp`, `ScanForm`; enabled the previously-disabled button)
+- [x] Report view: repo header, severity summary counts, findings list
+      (`ReportView`, `SummaryBar`) + severity filter chips + Re-scan button
+- [x] Finding detail: expandable evidence (file/line + snippet), suggested fix
+      with copy-to-clipboard (`FindingCard`)
+- [x] Empty state: "No drift detected"
+- [x] Shareable scan via `?repo=` deep-link (prefill + auto-run); `/scans/:id`
+      still deferred (needs persistence)
+- [ ] Recent scans list/history view (deferred: needs persistence)
+- [x] Markdown/snippet rendering sanitized: all report text rendered as escaped
+      React children, no `dangerouslySetInnerHTML` (`renderInlineCode`)
+- [x] Tests: RTL tests for report rendering from fixture, filter/expand/copy,
+      and scan submit + error states (`tests/components/*.test.tsx`)
 
 ## Phase 6 — Hardening & polish
 
