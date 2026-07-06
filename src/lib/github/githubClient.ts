@@ -21,17 +21,36 @@ function isTimeout(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'TimeoutError';
 }
 
+/**
+ * GitHub signals rate limiting two ways: the primary limit is a `403` with
+ * `X-RateLimit-Remaining: 0`; the secondary/abuse limit is a `429` (or a `403`
+ * carrying a `Retry-After` header).
+ */
+function isRateLimited(response: Response): boolean {
+  if (response.status === 429) return true;
+  if (response.status === 403) {
+    return (
+      response.headers.get('x-ratelimit-remaining') === '0' || response.headers.has('retry-after')
+    );
+  }
+  return false;
+}
+
 function mapErrorResponse(response: Response): ScanError {
   if (response.status === 404) {
     // Unauthenticated requests can't tell private from non-existent — both 404.
     return new ScanError('REPO_NOT_FOUND', 'Repository not found, or it is private.');
   }
-  if (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0') {
+  if (isRateLimited(response)) {
+    const retryAfter = response.headers.get('retry-after');
     const reset = response.headers.get('x-ratelimit-reset');
     return new ScanError(
       'RATE_LIMITED',
-      'GitHub API rate limit exceeded. Try again later, or set a GITHUB_TOKEN.',
-      { resetAt: reset ? Number(reset) : undefined },
+      'GitHub API rate limit exceeded. Wait a bit and retry, or set a GITHUB_TOKEN to raise the limit.',
+      {
+        retryAfterSeconds: retryAfter ? Number(retryAfter) : undefined,
+        resetAt: reset ? Number(reset) : undefined,
+      },
     );
   }
   return new ScanError('GITHUB_UPSTREAM_ERROR', `GitHub API returned ${response.status}.`);

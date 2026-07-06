@@ -19,9 +19,12 @@ function withBudget<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 function errorResponse(error: ScanError): Response {
+  const headers: Record<string, string> = {};
+  const retryAfter = error.meta?.retryAfterSeconds;
+  if (typeof retryAfter === 'number') headers['Retry-After'] = String(retryAfter);
   return Response.json(
     { error: { code: error.code, message: error.message, ...(error.meta ?? {}) } },
-    { status: SCAN_ERROR_STATUS[error.code] },
+    { status: SCAN_ERROR_STATUS[error.code], headers },
   );
 }
 

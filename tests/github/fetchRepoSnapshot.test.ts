@@ -99,4 +99,23 @@ describe('fetchRepoSnapshot', () => {
       expect((error as ScanError).meta?.resetAt).toBe(1700000000);
     }
   });
+
+  it('maps a 429 (secondary rate limit) to RATE_LIMITED with retry-after', async () => {
+    const routes = {
+      '/repos/o/r': new Response('', { status: 429, headers: { 'retry-after': '60' } }),
+    };
+    await expect(fetchRepoSnapshot('o', 'r', fakeFetch(routes))).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      meta: { retryAfterSeconds: 60 },
+    });
+  });
+
+  it('maps a 403 with Retry-After (abuse limit, no remaining header) to RATE_LIMITED', async () => {
+    const routes = {
+      '/repos/o/r': new Response('', { status: 403, headers: { 'retry-after': '30' } }),
+    };
+    await expect(fetchRepoSnapshot('o', 'r', fakeFetch(routes))).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+    });
+  });
 });
