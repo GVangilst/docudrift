@@ -14,20 +14,14 @@ describe('envVarDriftDetector', () => {
     expect(envIssues('env-all-consistent')).toHaveLength(0);
   });
 
-  it('flags a documented var that is unused (medium) and an example var that is undocumented (low)', () => {
+  it('flags a documented var that is unused (medium); an example-only var is not flagged', () => {
     const issues = envIssues('env-doc-mismatch');
-    expect(issues).toHaveLength(2);
-
-    const documentedUnused = issues.find((i) => i.title.includes('MONGO_URI'));
-    expect(documentedUnused?.severity).toBe('warning');
-
-    const exampleUndocumented = issues.find((i) => i.title.includes('DATABASE_URL'));
-    expect(exampleUndocumented?.severity).toBe('info');
-    // No secret value leaks into the evidence snippet.
-    expect(exampleUndocumented?.evidence[0].snippet).not.toContain('postgres');
-    expect(exampleUndocumented?.evidence[0].snippet).toContain('<redacted>');
-
-    expect(issues.some((i) => i.severity === 'error')).toBe(false);
+    // MONGO_URI documented but unused → warning. DATABASE_URL is in .env.example
+    // (which is documentation), so it is intentionally not flagged.
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('MONGO_URI');
+    expect(issues[0].severity).toBe('warning');
+    expect(issues.some((i) => i.title.includes('DATABASE_URL'))).toBe(false);
   });
 
   it('flags a source-used var that is undocumented and has no example (high)', () => {
@@ -38,11 +32,10 @@ describe('envVarDriftDetector', () => {
     expect(issues[0].evidence[0].file).toBe('src/payments.js');
   });
 
-  it('flags an example var missing from the README (low)', () => {
-    const issues = envIssues('env-example-only');
-    expect(issues).toHaveLength(1);
-    expect(issues[0].severity).toBe('info');
-    expect(issues[0].title).toContain('AUTH_SECRET');
+  it('does not flag an env var that is only in .env.example (example is the docs)', () => {
+    // .env.example IS the documentation, so a var present there but not repeated
+    // in the README is not drift.
+    expect(envIssues('env-example-only')).toHaveLength(0);
   });
 
   it('ignores common vars like NODE_ENV', () => {
@@ -91,5 +84,59 @@ describe('envVarDriftDetector', () => {
     expect(issues).toHaveLength(1);
     expect(issues[0].title).toContain('REAL_TOKEN');
     expect(issues.some((i) => /FIXTURE_SECRET/.test(i.title))).toBe(false);
+  });
+
+  function envFrom(files: RepoSnapshot['files'], allPaths?: string[]) {
+    return analyzeRepository({
+      repo: { owner: 'o', name: 'r' },
+      files,
+      allPaths: allPaths ?? files.map((f) => f.path),
+    }).filter((i) => i.detectorId === 'env-var-drift');
+  }
+
+  it('ignores platform/framework built-in env vars (VERCEL_URL, import.meta.env.PROD, UV_THREADPOOL_SIZE)', () => {
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      {
+        path: 'src/app.ts',
+        content:
+          'const a = process.env.VERCEL_URL;\nconst b = import.meta.env.PROD;\nconst c = process.env.UV_THREADPOOL_SIZE;\nconst d = process.env.npm_package_version;',
+      },
+    ]);
+    expect(issues).toHaveLength(0);
+  });
+
+  it('skips env reads in build/vendored output (dist/)', () => {
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      { path: 'dist/bundle.js', content: 'const s = process.env.SOME_SECRET_KEY;' },
+    ]);
+    expect(issues).toHaveLength(0);
+  });
+
+  it('counts docker-compose env keys as usage (documented DB var is not "unused")', () => {
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x\n\nSet `POSTGRES_USER` for the database.' },
+      {
+        path: 'docker-compose.yml',
+        content: 'services:\n  db:\n    image: postgres\n    environment:\n      POSTGRES_USER: app\n',
+      },
+    ]);
+    expect(issues).toHaveLength(0);
+  });
+
+  it('does not treat URL query params or date placeholders as env vars', () => {
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      {
+        path: 'README.md',
+        content:
+          '# x\n\n```bash\nYYYYMMDD=<a date>\ncurl "http://x/y?var_UGRD=on&var_VGRD=on&dir=${YYYYMMDD}"\n```\n',
+      },
+    ]);
+    expect(issues.some((i) => /YYYYMMDD|UGRD|VGRD/.test(i.title))).toBe(false);
   });
 });

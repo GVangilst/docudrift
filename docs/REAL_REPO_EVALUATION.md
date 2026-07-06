@@ -126,5 +126,57 @@ raw fetches; repos 9–10 were re-run with request spacing (`EVAL_DELAY_MS`).
 - **nuxt-modules/apollo** / **sumitkolhe/jiosaavn-api** — positive "stays clean" cases.
 - **adminmart / medusajs** — nested-app / no-root-`package.json` handling.
 
+## Post-fix results (top-5 false positives addressed)
+
+After fixing the top 5 and re-running, corpus findings dropped **76 → 18** and
+every low-severity rule-C "flood" is gone.
+
+| repo | before (H/M/L) | after (H/M/L) |
+|------|----------------|---------------|
+| langfuse/langfuse-js | 7 (0/1/6) | **1 (0/1/0)** |
+| open-spaced-repetition/ts-fsrs | 3 (3/0/0) | **0** |
+| nuxt-modules/apollo | 0 | 0 |
+| jihe520/mindpocket | 26 (6/11/9) | **7 (5/2/0)** |
+| sumitkolhe/jiosaavn-api | 0 | 0 |
+| bettergovph/bettergov | 19 (6/0/13) | **6 (6/0/0)** |
+| Klerith/nest-teslo-shop | 6 (0/1/5) | **1 (0/1/0)** |
+| solidjs/templates | 7 (1/0/6) | **0** |
+| sakitam-fdd/wind-layer | 7 (1/6/0) | **3 (1/2/0)** |
+
+**Fixes applied:** (1) expanded env ignore list + prefixes (`VERCEL_`, `npm_`, …),
+ignored `import.meta.env` Vite built-ins, and skipped `dist/`/`build/`/vendored
+files; (2) docker-compose env keys count as "usage" (rule A); (3) package-manager
+ignores library-install examples (`add <pkg>`, `install -g`, `install <pkg>`) via
+first-arg parsing; (4) node-engine ignores EOL/negation lines; (5) env prose
+extraction drops URL-query fragments (`var_UGRD`) and date placeholders
+(`YYYYMMDD`), and **rule C was removed** (`.env.example` is itself the docs).
+Also fetch-layer: bounded raw-fetch concurrency to avoid the secondary rate limit.
+A regression the pm change briefly introduced (breaking the solidjs "alternatives"
+suppression when the alternatives sit in a `# comment`) was found and fixed.
+
+**Are the remaining findings legitimate?**
+- **langfuse** node-engine (med): README "20+" vs engines `^20.19 || ^22.13 || >=24`
+  — **legit-but-minor**: "20+" really does allow 21.x/23.x that the package forbids.
+- **ts-fsrs / apollo / jiosaavn / solidjs**: **clean (0)** — all confirmed no-false-positive.
+- **mindpocket** 5× env (high): `NEXT_PUBLIC_OPENAI_API_KEY`, `MINDPOCKET_SERVER_URL`,
+  `WXT_API_BASE`, `EXPO_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL` — **likely true
+  positives** (real app config read in source, undocumented); `VERCEL_URL` is now
+  correctly ignored. *Manual review:* a monorepo may document these in a per-app
+  `.env.example` not fetched under the cap. Its 2× docker-drift (`DB_SSLMODE`,
+  `BETTER_AUTH_URL`) are **plausible true positives** (compose-required, undocumented).
+- **Klerith** package-manager (med): **confirmed true positive** (README uses yarn,
+  only `package-lock.json`).
+- **bettergov** 6× env (high): all from `scripts/*` / `manual-security-test.cjs`.
+  `HEAD_COMMIT_HASH` is a residual **false positive** (CI var); the rest are
+  build/utility-script env — **weak**, HIGH is too strong. → *follow-up: exclude
+  `scripts/` like `tests/`.*
+- **wind-layer** 2× file-reference + 1× env (`MINIFY`): **residual false positives**
+  (library-asset paths `maptalks/dist/maptalks.css` in a usage example; build-time
+  `MINIFY` in `rollup.config.ts`) — **out of the top-5 scope**, next round.
+
+**Residual issues to fix next (not in the top 5):** exclude `scripts/` from env
+source scanning; ignore library-asset paths (`node_modules`-style) in
+file-reference; treat build-config env (`MINIFY`) conservatively.
+
 ### Do any high-severity findings look trustworthy?
 **Largely no.** Every HIGH in this corpus came from env-var-drift "source reads X undocumented" or the node-engine EOL false positive, and the HIGHs were dominated by platform/build/vendored vars (`VERCEL_URL`, `UV_THREADPOOL_SIZE`, `MINIFY`, script vars) or the ts-fsrs negation FP. The closest to real are mindpocket's `NEXT_PUBLIC_*`/`EXPO_PUBLIC_*` (genuinely undocumented app config) — but **HIGH is too strong** for optional public vars. **Recommendation: env-var-drift should not emit HIGH without stronger evidence** (e.g., required + used at runtime + no default), and the current HIGH tier should be treated as "manual review needed."

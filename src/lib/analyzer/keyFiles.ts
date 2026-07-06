@@ -26,3 +26,11 @@ const TEST_FILE_RE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
 export function isTestPath(path: string): boolean {
   return TEST_DIR_RE.test(path) || TEST_FILE_RE.test(path);
 }
+
+// Build output / vendored / generated code — not the app's authored source.
+const GENERATED_DIR_RE = /(^|\/)(dist|build|out|coverage|vendor|generated|__generated__|\.next|\.nuxt|\.output)(\/|$)/i;
+const GENERATED_FILE_RE = /\.min\.[cm]?jsx?$/i;
+
+export function isGeneratedPath(path: string): boolean {
+  return GENERATED_DIR_RE.test(path) || GENERATED_FILE_RE.test(path);
+}

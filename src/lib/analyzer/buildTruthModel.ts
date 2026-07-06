@@ -5,7 +5,7 @@ import {
   isEnvExampleFile,
   isSourceFile,
 } from './envVars';
-import { LOCKFILE_MANAGERS, isTestPath } from './keyFiles';
+import { LOCKFILE_MANAGERS, isGeneratedPath, isTestPath } from './keyFiles';
 import { collectNodeVersionRequirements } from './nodeVersions';
 import { getRootFile } from './repoSnapshot';
 import type { EnvVarOccurrence, LockfileInfo, PackageManager, RepoSnapshot, TruthModel } from './types';
@@ -50,8 +50,8 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
   const envVarsFromExamples: EnvVarOccurrence[] = [];
   const envVarsFromCode: EnvVarOccurrence[] = [];
   for (const file of snapshot.files) {
-    // Skip test/fixture files — they aren't the app's real env config.
-    if (isTestPath(file.path)) continue;
+    // Skip test/fixture and build/vendored files — not the app's real env config.
+    if (isTestPath(file.path) || isGeneratedPath(file.path)) continue;
     if (isEnvExampleFile(file.path)) {
       envVarsFromExamples.push(...extractEnvVarsFromExample(file));
     } else if (isSourceFile(file.path)) {

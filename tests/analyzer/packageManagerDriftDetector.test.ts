@@ -1,12 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRepository } from '@/lib/analyzer/analyzeRepository';
-import type { DriftIssue } from '@/lib/analyzer/types';
+import type { DriftIssue, RepoSnapshot } from '@/lib/analyzer/types';
 import { loadFixtureRepo } from '../helpers/loadFixtureRepo';
 
 function pmIssues(name: string): DriftIssue[] {
   return analyzeRepository(loadFixtureRepo(name)).filter(
     (issue) => issue.detectorId === 'package-manager-drift',
   );
+}
+
+function pmIssuesFor(readme: string): DriftIssue[] {
+  const snapshot: RepoSnapshot = {
+    repo: { owner: 'o', name: 'r' },
+    files: [
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'package-lock.json', content: '{}' },
+      { path: 'README.md', content: readme },
+    ],
+    allPaths: ['package.json', 'package-lock.json', 'README.md'],
+  };
+  return analyzeRepository(snapshot).filter((i) => i.detectorId === 'package-manager-drift');
 }
 
 describe('packageManagerDriftDetector', () => {
@@ -45,5 +58,24 @@ describe('packageManagerDriftDetector', () => {
 
   it('does not flag package-manager drift when there is no lockfile', () => {
     expect(pmIssues('pm-no-lockfile')).toHaveLength(0);
+  });
+
+  it('ignores library-install examples (`yarn add pkg`, `npm install -g cli`)', () => {
+    // README shows installing published packages, not setting up this repo.
+    expect(pmIssuesFor('# x\n\n```bash\nyarn add wind-core\n```\n')).toHaveLength(0);
+    expect(pmIssuesFor('# x\n\n```bash\nnpm install -g some-cli\n```\n')).toHaveLength(0);
+    expect(pmIssuesFor('# x\n\n```bash\npnpm add lodash\n```\n')).toHaveLength(0);
+  });
+
+  it('still flags a genuine setup command in the wrong manager (`yarn install`)', () => {
+    const issues = pmIssuesFor('# x\n\n```bash\nyarn install\n```\n');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('yarn');
+  });
+
+  it('treats an inline alternatives comment as offering alternatives (no drift)', () => {
+    // solidjs/templates style: "$ npm install # or pnpm install or yarn install".
+    const issues = pmIssuesFor('# x\n\n```bash\n$ npm install # or pnpm install or yarn install\n```\n');
+    expect(issues).toHaveLength(0);
   });
 });

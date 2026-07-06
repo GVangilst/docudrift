@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRepository } from '@/lib/analyzer/analyzeRepository';
-import type { DriftIssue } from '@/lib/analyzer/types';
+import type { DriftIssue, RepoSnapshot } from '@/lib/analyzer/types';
 import { loadFixtureRepo } from '../helpers/loadFixtureRepo';
 
 function nodeIssues(name: string): DriftIssue[] {
@@ -51,5 +51,24 @@ describe('nodeEngineMismatchDetector', () => {
 
   it('does not treat a bare "Node" mention without a version as a claim', () => {
     expect(nodeIssues('node-no-version')).toHaveLength(0);
+  });
+
+  it('ignores Node versions stated as end-of-life / unsupported', () => {
+    // Mirrors ts-fsrs: requirement is >=20; the "16 and 18" are called EOL.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x","engines":{"node":">=20"}}' },
+        {
+          path: 'README.md',
+          content:
+            '# x\n\nRequires Node 20.\n\nNode.js 16 and 18 are end-of-life, so we no longer support versions earlier than Node.js 20.\n',
+        },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    expect(
+      analyzeRepository(snapshot).filter((i) => i.detectorId === 'node-engine-mismatch'),
+    ).toHaveLength(0);
   });
 });

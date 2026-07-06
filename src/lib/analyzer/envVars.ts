@@ -4,12 +4,17 @@ const SOURCE_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs']);
 const ENV_EXAMPLE_RE = /^\.env\.(example|sample|template)$/i;
 
 // Env var read patterns in source code. All capture the variable name only.
-const CODE_ENV_PATTERNS = [
-  /process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g,
-  /process\.env\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g,
-  /import\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)/g,
-  /import\.meta\.env\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g,
+// `importMeta` patterns are Vite's `import.meta.env`, which exposes build-time
+// built-ins that aren't user-provided config.
+const CODE_ENV_PATTERNS: { re: RegExp; importMeta: boolean }[] = [
+  { re: /process\.env\.([A-Za-z_][A-Za-z0-9_]*)/g, importMeta: false },
+  { re: /process\.env\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g, importMeta: false },
+  { re: /import\.meta\.env\.([A-Za-z_][A-Za-z0-9_]*)/g, importMeta: true },
+  { re: /import\.meta\.env\[\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]\s*\]/g, importMeta: true },
 ];
+
+// Vite `import.meta.env` built-ins — always present, never app config.
+const VITE_BUILTINS = new Set(['PROD', 'DEV', 'MODE', 'SSR', 'BASE_URL']);
 
 // A `KEY=` (optionally `export KEY=`) assignment at the start of a line.
 const ENV_ASSIGNMENT_RE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/;
@@ -90,10 +95,11 @@ export function extractEnvUsagesFromSource(file: RepoFile): EnvVarOccurrence[] {
 
   file.content.split(/\r?\n/).forEach((line, index) => {
     const seenOnLine = new Set<string>();
-    for (const pattern of CODE_ENV_PATTERNS) {
-      for (const match of line.matchAll(pattern)) {
+    for (const { re, importMeta } of CODE_ENV_PATTERNS) {
+      for (const match of line.matchAll(re)) {
         const name = match[1];
         if (seenOnLine.has(name) || isPlaceholderName(name)) continue;
+        if (importMeta && VITE_BUILTINS.has(name)) continue;
         if (isInsideComment(line, match.index ?? 0)) continue;
         seenOnLine.add(name);
         occurrences.push({

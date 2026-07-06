@@ -14,6 +14,26 @@ type RepoMeta = { default_branch: string };
 type BranchMeta = { commit: { sha: string } };
 type TreeResponse = { tree: TreeEntry[]; truncated: boolean };
 
+const RAW_FETCH_CONCURRENCY = 10;
+
+/** Runs `fn` over `items` with at most `limit` promises in flight at once. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /**
  * Fetches a public GitHub repo into a RepoSnapshot the analyzer can consume.
  * Uses 3 API calls (repo → branch → tree) plus one raw.githubusercontent.com
@@ -47,12 +67,12 @@ export async function fetchRepoSnapshot(
   }
 
   const paths = selectKeyFiles(tree.tree);
-  const fetched = await Promise.all(
-    paths.map(async (path): Promise<RepoFile | null> => {
-      const content = await githubRaw(owner, repo, commitSha, path, fetchFn);
-      return content === null ? null : { path, content };
-    }),
-  );
+  // Bounded concurrency: hundreds of simultaneous raw fetches can trip GitHub's
+  // secondary (abuse) rate limit, so cap how many are in flight at once.
+  const fetched = await mapWithConcurrency(paths, RAW_FETCH_CONCURRENCY, async (path) => {
+    const content = await githubRaw(owner, repo, commitSha, path, fetchFn);
+    return content === null ? null : { path, content };
+  });
 
   return {
     snapshot: {

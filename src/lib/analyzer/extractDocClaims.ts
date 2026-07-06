@@ -19,22 +19,51 @@ const RUN_SCRIPT_RE = /\bnpm\s+run(?:-script)?\s+([a-zA-Z0-9_:.-]+)/g;
 const START_RE = /\bnpm\s+start\b/;
 const TEST_RE = /\bnpm\s+test\b/;
 
-// An uppercase `KEY=` assignment, e.g. `DATABASE_URL=...` in an env block.
-// The negative lookahead avoids matching JS comparisons like `X===y`.
-const ENV_ASSIGNMENT_DOC_RE = /([A-Z][A-Z0-9_]*)=(?!=)/g;
+// An uppercase `KEY=` assignment, e.g. `DATABASE_URL=...` in an env block. The
+// lookbehind stops matching a fragment of a larger token (e.g. `UGRD` inside a
+// URL query `var_UGRD=on`); the lookahead avoids JS comparisons like `X===y`.
+const ENV_ASSIGNMENT_DOC_RE = /(?<![\w@$])([A-Z][A-Z0-9_]*)=(?!=)/g;
 // A SCREAMING_SNAKE_CASE token in prose, e.g. "set DATABASE_URL in .env".
 // Requiring an underscore keeps single-word acronyms (API, URL, MIT) out.
 const ENV_SNAKE_RE = /\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g;
+// Date/time format placeholders (e.g. YYYYMMDD, HHMMSS) — not env vars.
+const DATE_FORMAT_RE = /^[YMDHS]{3,}$/;
 
-// Package-manager invocations: `<manager> <subcommand> [args...]`. Requiring a
-// known subcommand keeps prose like "npm is great" from matching. The trailing
-// group captures the rest of the command (e.g. the "dev" in "npm run dev").
+// Package-manager invocations: `<manager> <subcommand> [args...]`. Longer
+// subcommands are listed before their prefixes so alternation matches greedily.
 const PM_SUBCOMMANDS =
-  'install|i|ci|add|remove|rm|run|run-script|start|test|dev|build|lint|serve|preview|watch|exec|dlx|create|init|update|up|upgrade|publish|link|x';
+  'install|ci|i|add|remove|rm|run-script|run|start|test|dev|build|lint|serve|preview|watch|exec|dlx|create|init|upgrade|update|up|publish|link|x';
+// Captures manager, subcommand, and only the IMMEDIATE next token (a flag or a
+// package name) — not a greedy run of words, so it never spans into the next
+// command or prose ("… # or pnpm install or yarn install").
 const PM_COMMAND_RE = new RegExp(
-  `\\b(npm|yarn|pnpm|bun)\\s+(?:${PM_SUBCOMMANDS})\\b(?:\\s+[@\\w:./-]+)*`,
-  'g',
+  `\\b(npm|yarn|pnpm|bun)\\s+(${PM_SUBCOMMANDS})\\b(?:[ \\t]+((?:-{1,2}[\\w-]+)|@?[\\w][\\w.@/-]*))?`,
+  'gi',
 );
+// Subcommands that indicate running/setting up THIS repo (vs. installing a package).
+const PM_RUN_SUBCOMMANDS = new Set([
+  'ci', 'run', 'run-script', 'start', 'test', 'dev', 'build', 'lint', 'serve', 'preview', 'watch',
+]);
+// Words after `install` that are prose/other commands, not a package argument.
+const NON_PACKAGE_ARGS = new Set(['or', 'and', 'then', 'npm', 'pnpm', 'yarn', 'bun']);
+
+/**
+ * Whether a package-manager command reflects using *this* repo (setup/run) — as
+ * opposed to a library-install example (`yarn add pkg`, `npm install -g cli`,
+ * `npm install some-pkg`), which says nothing about the repo's own manager.
+ */
+function isRepoManagerCommand(subcommand: string, firstArg: string | undefined): boolean {
+  const sub = subcommand.toLowerCase();
+  if (PM_RUN_SUBCOMMANDS.has(sub)) return true;
+  if (sub === 'install' || sub === 'i') {
+    if (!firstArg) return true; // bare `install` → repo setup
+    const arg = firstArg.toLowerCase();
+    if (arg === '-g' || arg === '--global') return false; // global tool install
+    if (arg.startsWith('-')) return true; // other flags (--frozen-lockfile) → still setup
+    return NON_PACKAGE_ARGS.has(arg); // a real package name ⇒ library install
+  }
+  return false; // add / remove / create / init / dlx / update / publish / link …
+}
 
 // A Node version expression: optional operator, optional `v`, dotted digits,
 // optional `.x` or `+` suffix — matches "18", ">=18", "18+", "18.x", "20.11.1".
@@ -46,6 +75,10 @@ const NODE_MENTION_RE = new RegExp(
 );
 // "nvm use 20", "nvm install 18".
 const NVM_RE = new RegExp(`\\bnvm\\s+(?:use|install)\\s+(${NODE_VERSION_EXPR})`, 'gi');
+// A line stating a Node version is NOT a requirement (EOL / unsupported / range
+// boundary), e.g. "Node.js 16 and 18 are end-of-life". Such lines are skipped.
+const NODE_NEGATION_RE =
+  /\b(end[-\s]?of[-\s]?life|eol|no longer support|not supported|unsupported|deprecat|drop(?:ped|ping)?\s+support|earlier than|older than|prior to|before node)\b/i;
 
 // Docker commands. Requiring a verb after `docker` keeps hostnames like
 // "docs.docker.com" (no space + verb) from matching.
@@ -154,7 +187,10 @@ function extractEnvVarClaims(line: string, source: DocClaimSource): EnvVarClaim[
     claims.push({ kind: 'env-var', name, rawText, source });
   };
 
-  for (const match of line.matchAll(ENV_ASSIGNMENT_DOC_RE)) add(match[1], `${match[1]}=`);
+  for (const match of line.matchAll(ENV_ASSIGNMENT_DOC_RE)) {
+    if (DATE_FORMAT_RE.test(match[1])) continue; // e.g. YYYYMMDD=<date>
+    add(match[1], `${match[1]}=`);
+  }
   for (const match of line.matchAll(ENV_SNAKE_RE)) {
     // Skip SCREAMING_SNAKE tokens that are really part of a filename, e.g.
     // `PRODUCT_SPEC.md` / `MVP_CHECKLIST.md` — a dot + extension immediately
@@ -175,9 +211,11 @@ function extractPackageCommandClaims(
   const claims: PackageCommandClaim[] = [];
 
   for (const match of line.matchAll(PM_COMMAND_RE)) {
+    const [, manager, subcommand, firstArg] = match;
+    if (!isRepoManagerCommand(subcommand, firstArg)) continue;
     claims.push({
       kind: 'command',
-      packageManager: match[1] as PackageManager,
+      packageManager: manager as PackageManager,
       command: match[0].trim(),
       source,
     });
@@ -187,6 +225,10 @@ function extractPackageCommandClaims(
 }
 
 function extractNodeVersionClaims(line: string, source: DocClaimSource): NodeVersionClaim[] {
+  // Lines that state a version is unsupported/EOL aren't requirement claims,
+  // e.g. "Node.js 16 and 18 are end-of-life, so we no longer support …".
+  if (NODE_NEGATION_RE.test(line)) return [];
+
   const claims: NodeVersionClaim[] = [];
   const seen = new Set<string>();
 

@@ -77,6 +77,8 @@ export type DockerInfo = {
   composePorts: PortMapping[];
   /** Env keys the compose config needs from the host (bare `- KEY` or `${KEY}`). */
   requiredEnvKeys: string[];
+  /** All env keys referenced in compose `environment:` blocks (set or required). */
+  composeEnvKeys: string[];
 };
 
 /**

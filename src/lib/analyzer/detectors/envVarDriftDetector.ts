@@ -9,9 +9,26 @@ import type {
 
 const DETECTOR_ID = 'env-var-drift';
 
-// Ubiquitous runtime vars that are noise unless the README explicitly documents
-// them as required app config.
-const COMMON_ENV_VARS = new Set(['NODE_ENV', 'CI', 'PATH', 'HOME', 'PORT']);
+// Ubiquitous runtime / platform / tooling vars that are noise unless the README
+// explicitly documents them as required app config.
+const COMMON_ENV_VARS = new Set([
+  // OS / shell
+  'PATH', 'HOME', 'PWD', 'USER', 'SHELL', 'TERM', 'LANG', 'TMPDIR', 'TZ', 'HOSTNAME', 'LOGNAME',
+  // Node runtime / native tooling
+  'NODE_ENV', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_NO_WARNINGS', 'NODE_TLS_REJECT_UNAUTHORIZED',
+  'UV_THREADPOOL_SIZE', 'NAPI_RS_ASYNC_WORK_POOL_SIZE',
+  // CI / logging / misc
+  'CI', 'DEBUG', 'FORCE_COLOR', 'NO_COLOR', 'PORT',
+  // Platform-injected
+  'VERCEL', 'VERCEL_URL', 'VERCEL_ENV',
+]);
+
+// Platform env prefixes that are host-injected, not app config.
+const COMMON_ENV_PREFIXES = ['npm_', 'VERCEL_', 'RAILWAY_', 'RENDER_', 'CF_PAGES', 'NETLIFY'];
+
+function isCommonEnv(name: string): boolean {
+  return COMMON_ENV_VARS.has(name) || COMMON_ENV_PREFIXES.some((p) => name.startsWith(p));
+}
 
 /** Keep the first occurrence per name so evidence is stable and deduped. */
 function firstByName(occurrences: EnvVarOccurrence[]): Map<string, EnvVarOccurrence> {
@@ -24,12 +41,14 @@ function firstByName(occurrences: EnvVarOccurrence[]): Map<string, EnvVarOccurre
 
 /**
  * Cross-checks env vars documented in the README against those declared in
- * `.env.example` files and read in source code. Emits one issue per env var:
+ * `.env.example` files, read in source code, and referenced in docker-compose.
+ * Emits one issue per env var:
  *
- * - documented but neither exampled nor used  → warning (medium)
- * - used in source but undocumented + no example → error (high)
- * - in an example but undocumented in README   → info (low)
+ * - documented but neither exampled, used, nor in compose → warning (medium)
+ * - used in source but undocumented + no example          → error (high)
  *
+ * ".env.example vars not repeated in the README" is intentionally NOT flagged —
+ * the example file *is* the documentation, so that check was pure noise.
  * Only variable names are ever surfaced; values are redacted upstream.
  */
 export function envVarDriftDetector(claims: DocClaim[], truth: TruthModel): DriftIssue[] {
@@ -45,15 +64,17 @@ export function envVarDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
   const docNames = new Set(documented.keys());
   const exampleNames = new Set(examples.keys());
   const codeNames = new Set(code.keys());
+  // Compose env keys count as "usage" — a var wired into docker-compose isn't unused.
+  const composeEnvNames = new Set(truth.docker.composeEnvKeys);
 
-  // A common var is ignorable unless the README clearly documents it.
-  const isIgnored = (name: string) => COMMON_ENV_VARS.has(name) && !docNames.has(name);
+  // A common/platform var is ignorable unless the README clearly documents it.
+  const isIgnored = (name: string) => isCommonEnv(name) && !docNames.has(name);
 
   const issues: DriftIssue[] = [];
 
   // Rule A (medium): documented in README, but nothing declares or uses it.
   for (const [name, claim] of documented) {
-    if (exampleNames.has(name) || codeNames.has(name)) continue;
+    if (exampleNames.has(name) || codeNames.has(name) || composeEnvNames.has(name)) continue;
     issues.push({
       id: `${DETECTOR_ID}:documented-unused:${name}`,
       detectorId: DETECTOR_ID,
@@ -91,28 +112,6 @@ export function envVarDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
         },
       ],
       suggestedFix: `Document \`${name}\` in the README and add it to .env.example.`,
-    });
-  }
-
-  // Rule C (low): present in a .env.example, but undocumented in README.
-  for (const [name, occ] of examples) {
-    if (docNames.has(name)) continue;
-    if (isIgnored(name)) continue;
-    issues.push({
-      id: `${DETECTOR_ID}:example-undocumented:${name}`,
-      detectorId: DETECTOR_ID,
-      severity: 'info',
-      title: `\`${name}\` is in ${occ.file} but not documented`,
-      description: `The \`${name}\` environment variable appears in \`${occ.file}\` but is not documented in the README.`,
-      evidence: [
-        {
-          label: 'env-example',
-          file: occ.file,
-          line: occ.line,
-          snippet: redactEnvValues(occ.snippet),
-        },
-      ],
-      suggestedFix: `Document \`${name}\` in the README's configuration/environment section.`,
     });
   }
 
