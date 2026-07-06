@@ -136,7 +136,37 @@ function normalizeFileRef(raw: string): string | null {
   return s;
 }
 
-function extractNpmScriptClaims(line: string, source: DocClaimSource): NpmScriptClaim[] {
+// Fenced-code languages we treat as shell (so `npm run X` in them is a real
+// command). Empty = an unlabelled ``` block, commonly shell.
+const SHELL_LANGS = new Set(['', 'bash', 'sh', 'shell', 'shellsession', 'console', 'zsh']);
+// A Dockerfile instruction line — its `npm run build` is image-build, not repo setup.
+const DOCKERFILE_DIRECTIVE_RE = /^\s*(RUN|FROM|COPY|CMD|WORKDIR|ENV|EXPOSE|ENTRYPOINT|ARG|ADD)\b/;
+// Inline code spans: the `x` in `run \`npm run build\``.
+const INLINE_CODE_RE = /`([^`]+)`/g;
+
+type LineContext = { inFence: boolean; fenceLang: string; isFenceMarker: boolean; isHeading: boolean };
+
+/**
+ * Returns the text of a line that should be scanned for npm commands, given its
+ * markdown context — or null if none. Commands only count inside shell code
+ * blocks (not Dockerfile directives) or inside inline-code spans in prose; a
+ * heading or link-text mention like "avoid `npm start`" is ignored (a heading is
+ * a title, not an instruction — even when the command is backticked).
+ */
+function commandContextText(line: string, ctx: LineContext): string | null {
+  if (ctx.isFenceMarker) return null;
+  if (ctx.inFence) {
+    if (!SHELL_LANGS.has(ctx.fenceLang)) return null;
+    if (DOCKERFILE_DIRECTIVE_RE.test(line)) return null;
+    return line;
+  }
+  if (ctx.isHeading) return null;
+  // Prose: only the contents of inline-code spans.
+  const spans = [...line.matchAll(INLINE_CODE_RE)].map((m) => m[1]);
+  return spans.length ? spans.join('\n') : null;
+}
+
+function extractNpmScriptClaims(text: string, source: DocClaimSource): NpmScriptClaim[] {
   const claims: NpmScriptClaim[] = [];
   const seen = new Set<string>();
 
@@ -146,12 +176,16 @@ function extractNpmScriptClaims(line: string, source: DocClaimSource): NpmScript
     claims.push({ kind: 'npm-script', command, scriptName, source });
   };
 
-  for (const match of line.matchAll(RUN_SCRIPT_RE)) add(match[1], match[0].trim());
-  if (START_RE.test(line)) add('start', 'npm start');
-  if (TEST_RE.test(line)) add('test', 'npm test');
+  for (const match of text.matchAll(RUN_SCRIPT_RE)) add(match[1], match[0].trim());
+  if (START_RE.test(text)) add('start', 'npm start');
+  if (TEST_RE.test(text)) add('test', 'npm test');
 
   return claims;
 }
+
+// A full URL run — bare path tokens inside one are URL fragments, not repo files
+// (e.g. `%40trpc/server.svg` inside a shields.io badge URL).
+const URL_SPAN_RE = /\bhttps?:\/\/[^\s)"'<>]+/gi;
 
 function extractFileReferenceClaims(line: string, source: DocClaimSource): FileReferenceClaim[] {
   const claims: FileReferenceClaim[] = [];
@@ -168,10 +202,19 @@ function extractFileReferenceClaims(line: string, source: DocClaimSource): FileR
     claims.push({ kind: 'file-reference', rawText: raw.trim(), path, source });
   };
 
+  const urlSpans = [...line.matchAll(URL_SPAN_RE)].map((m) => ({
+    start: m.index ?? 0,
+    end: (m.index ?? 0) + m[0].length,
+  }));
+  const insideUrl = (index: number) => urlSpans.some((s) => index >= s.start && index < s.end);
+
   // Markdown link targets are explicit file intent — accept even without a `/`.
   for (const match of line.matchAll(MARKDOWN_LINK_DEST_RE)) consider(match[1], false);
-  // Bare tokens scanned from prose must look path-like.
-  for (const match of line.matchAll(PATH_TOKEN_RE)) consider(match[0], true);
+  // Bare tokens scanned from prose must look path-like and not sit inside a URL.
+  for (const match of line.matchAll(PATH_TOKEN_RE)) {
+    if (insideUrl(match.index ?? 0)) continue;
+    consider(match[0], true);
+  }
 
   return claims;
 }
@@ -328,9 +371,26 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
   const repoName = snapshot.repo.name;
   const claims: DocClaim[] = [];
   let awayFromRepoRoot = false;
+  let inFence = false;
+  let fenceLang = '';
 
   readme.content.split(/\r?\n/).forEach((line, index) => {
-    if (HEADING_RE.test(line)) awayFromRepoRoot = false;
+    const fenceMatch = /^\s*(?:```|~~~)(.*)$/.exec(line);
+    const isFenceMarker = fenceMatch !== null;
+    if (isFenceMarker) {
+      if (inFence) {
+        inFence = false;
+        fenceLang = '';
+      } else {
+        inFence = true;
+        // Language token immediately after the fence (e.g. ```bash / ```js).
+        fenceLang = (fenceMatch[1].trim().split(/\s+/)[0] ?? '').toLowerCase();
+      }
+    }
+    const isHeading = HEADING_RE.test(line);
+    const ctx: LineContext = { inFence, fenceLang, isFenceMarker, isHeading };
+
+    if (isHeading) awayFromRepoRoot = false;
     const cd = CD_COMMAND_RE.exec(line);
     if (cd) awayFromRepoRoot = !cdTargetIsRepo(cd[1], repoName);
 
@@ -339,8 +399,15 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
       line: index + 1,
       snippet: line.trim(),
     };
-    if (!awayFromRepoRoot) claims.push(...extractNpmScriptClaims(line, source));
-    claims.push(...extractFileReferenceClaims(line, source));
+    // Commands only count in code contexts (shell block / inline code), never prose.
+    if (!awayFromRepoRoot) {
+      const commandText = commandContextText(line, ctx);
+      if (commandText !== null) claims.push(...extractNpmScriptClaims(commandText, source));
+    }
+    // File references only count in doc context — never inside fenced code blocks.
+    if (!ctx.inFence && !ctx.isFenceMarker) {
+      claims.push(...extractFileReferenceClaims(line, source));
+    }
     claims.push(...extractEnvVarClaims(line, source));
     claims.push(...extractPackageCommandClaims(line, source));
     claims.push(...extractNodeVersionClaims(line, source));

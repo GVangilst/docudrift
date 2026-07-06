@@ -65,4 +65,22 @@ describe('fileReferenceDriftDetector', () => {
     const withoutTree: RepoSnapshot = { repo: withTree.repo, files: withTree.files };
     expect(fileRefIssues(withoutTree)).toHaveLength(1);
   });
+
+  it('ignores paths inside code blocks but flags a real prose link', () => {
+    // require()/import paths and Dockerfile COPY/CMD paths are code, not doc
+    // references; only the prose markdown link to a missing file fires.
+    const issues = analyzeRepository(loadFixtureRepo('file-ref-code-block')).filter(
+      (i) => i.detectorId === 'file-reference-drift',
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('docs/CONTRIBUTING.md');
+  });
+
+  it('does not treat URL-encoded badge fragments as file paths', () => {
+    // `%40scope/server.svg` inside a shields.io URL must not become `40scope/server.svg`.
+    const issues = analyzeRepository(loadFixtureRepo('file-ref-badge-url')).filter(
+      (i) => i.detectorId === 'file-reference-drift',
+    );
+    expect(issues).toHaveLength(0);
+  });
 });

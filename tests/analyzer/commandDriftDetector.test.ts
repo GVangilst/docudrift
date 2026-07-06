@@ -86,4 +86,31 @@ describe('commandDriftDetector', () => {
     };
     expect(commandIssues(snapshot)).toHaveLength(0);
   });
+
+  it('does not flag npm commands mentioned only in prose, headings, or link-text', () => {
+    // "avoid npm start" in a heading/link + "npm run build" in a sentence.
+    const issues = commandIssues(loadFixtureRepo('command-prose-mention'));
+    expect(issues).toHaveLength(0);
+  });
+
+  it('ignores npm commands in a Dockerfile snippet but flags a real shell one', () => {
+    // `RUN npm run build` (```dockerfile) is ignored; `npm run start:prod`
+    // (```bash) is a real missing-script claim.
+    const issues = commandIssues(loadFixtureRepo('command-dockerfile-snippet'));
+    expect(issues).toHaveLength(1);
+    expect(issues[0].description).toContain('"start:prod"');
+    expect(issues.some((i) => i.description.includes('"build"'))).toBe(false);
+  });
+
+  it('ignores a backticked command inside a heading (a title, not an instruction)', () => {
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'myapp' },
+      files: [
+        { path: 'package.json', content: '{"name":"myapp"}' },
+        { path: 'README.md', content: '# myapp\n\n## Bootstrap with node, avoid `npm start`\n' },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    expect(commandIssues(snapshot)).toHaveLength(0);
+  });
 });
