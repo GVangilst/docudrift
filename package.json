@@ -8,8 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "evaluate:repos": "tsx scripts/evaluate-real-repos.ts"
+    "test": "vitest run"
   },
   "dependencies": {
     "@prisma/client": "^7.8.0",

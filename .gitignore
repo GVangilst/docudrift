@@ -50,3 +50,6 @@ next-env.d.ts
 *.sqlite3
 *.db
 prisma/*.db
+
+# local-only real-repo validation harness (never committed)
+/eval/
