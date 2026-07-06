@@ -1,3 +1,4 @@
+import { isCommonEnv } from '../envVars';
 import type {
   DockerCommandClaim,
   DocClaim,
@@ -151,6 +152,7 @@ export function dockerDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
 
     for (const key of docker.requiredEnvKeys) {
       if (documented.has(key) || inExample.has(key) || inCode.has(key)) continue;
+      if (isCommonEnv(key)) continue; // TMPDIR and other host/CI infra vars
       push(`env:${key}`, {
         id: `${DETECTOR_ID}:env-undocumented:${key}`,
         detectorId: DETECTOR_ID,

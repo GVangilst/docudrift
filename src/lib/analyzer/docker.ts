@@ -1,3 +1,4 @@
+import { isTestPath, isToolingPath } from './keyFiles';
 import type { DockerInfo, PortMapping, RepoSnapshot } from './types';
 
 // Dockerfile, dockerfile, Dockerfile.dev, Dockerfile.prod, etc.
@@ -14,12 +15,19 @@ function basename(path: string): string {
   return slash === -1 ? path : path.slice(slash + 1);
 }
 
+// A Docker/compose file under a tooling/test path (scripts/, benchmark/,
+// .github/, .devcontainer/, examples/, …) is CI/dev/example infra, not the app's
+// deployment — so its ports/host env vars shouldn't be read as drift.
+function isDeploymentDocker(path: string): boolean {
+  return !isToolingPath(path) && !isTestPath(path);
+}
+
 export function isDockerfile(path: string): boolean {
-  return DOCKERFILE_RE.test(basename(path));
+  return DOCKERFILE_RE.test(basename(path)) && isDeploymentDocker(path);
 }
 
 export function isComposeFile(path: string): boolean {
-  return COMPOSE_FILES.has(basename(path).toLowerCase());
+  return COMPOSE_FILES.has(basename(path).toLowerCase()) && isDeploymentDocker(path);
 }
 
 /**

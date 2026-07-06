@@ -219,7 +219,24 @@ function extractFileReferenceClaims(line: string, source: DocClaimSource): FileR
   return claims;
 }
 
-function extractEnvVarClaims(line: string, source: DocClaimSource): EnvVarClaim[] {
+// Placeholder tokens in docs are not real env vars: `YOUR_*`/`MY_*` fill-ins, or
+// a token wrapped in `[...]` / `<...>` (e.g. `[YOUR_RESPONSIBILITY_1]`).
+const PLACEHOLDER_ENV_PREFIX = /^(YOUR|MY|SOME|EXAMPLE|SAMPLE|PLACEHOLDER|CHANGE|CHANGEME)_/i;
+
+function isPlaceholderEnv(name: string, line: string, index: number): boolean {
+  if (PLACEHOLDER_ENV_PREFIX.test(name)) return true;
+  const before = line[index - 1];
+  return before === '[' || before === '<';
+}
+
+function extractEnvVarClaims(
+  line: string,
+  source: DocClaimSource,
+  ctx: LineContext,
+): EnvVarClaim[] {
+  // A heading is a title (e.g. `##### CLIENT_FETCH_ERROR`), not env documentation.
+  if (ctx.isHeading) return [];
+
   const claims: EnvVarClaim[] = [];
   const seen = new Set<string>();
 
@@ -232,6 +249,7 @@ function extractEnvVarClaims(line: string, source: DocClaimSource): EnvVarClaim[
 
   for (const match of line.matchAll(ENV_ASSIGNMENT_DOC_RE)) {
     if (DATE_FORMAT_RE.test(match[1])) continue; // e.g. YYYYMMDD=<date>
+    if (isPlaceholderEnv(match[1], line, match.index ?? 0)) continue;
     add(match[1], `${match[1]}=`);
   }
   for (const match of line.matchAll(ENV_SNAKE_RE)) {
@@ -241,6 +259,7 @@ function extractEnvVarClaims(line: string, source: DocClaimSource): EnvVarClaim[
     // dot, so real env vars in prose are unaffected.)
     const after = line.slice((match.index ?? 0) + match[0].length);
     if (/^\.[A-Za-z]/.test(after)) continue;
+    if (isPlaceholderEnv(match[1], line, match.index ?? 0)) continue;
     add(match[1], match[1]);
   }
 
@@ -248,12 +267,12 @@ function extractEnvVarClaims(line: string, source: DocClaimSource): EnvVarClaim[
 }
 
 function extractPackageCommandClaims(
-  line: string,
+  text: string,
   source: DocClaimSource,
 ): PackageCommandClaim[] {
   const claims: PackageCommandClaim[] = [];
 
-  for (const match of line.matchAll(PM_COMMAND_RE)) {
+  for (const match of text.matchAll(PM_COMMAND_RE)) {
     const [, manager, subcommand, firstArg] = match;
     if (!isRepoManagerCommand(subcommand, firstArg)) continue;
     claims.push({
@@ -399,17 +418,18 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
       line: index + 1,
       snippet: line.trim(),
     };
-    // Commands only count in code contexts (shell block / inline code), never prose.
-    if (!awayFromRepoRoot) {
-      const commandText = commandContextText(line, ctx);
-      if (commandText !== null) claims.push(...extractNpmScriptClaims(commandText, source));
+    // Commands (npm scripts + package-manager) only count in code contexts
+    // (shell block / inline code), never prose, headings, or tables.
+    const commandText = commandContextText(line, ctx);
+    if (commandText !== null) {
+      if (!awayFromRepoRoot) claims.push(...extractNpmScriptClaims(commandText, source));
+      claims.push(...extractPackageCommandClaims(commandText, source));
     }
     // File references only count in doc context — never inside fenced code blocks.
     if (!ctx.inFence && !ctx.isFenceMarker) {
       claims.push(...extractFileReferenceClaims(line, source));
     }
-    claims.push(...extractEnvVarClaims(line, source));
-    claims.push(...extractPackageCommandClaims(line, source));
+    claims.push(...extractEnvVarClaims(line, source, ctx));
     claims.push(...extractNodeVersionClaims(line, source));
     claims.push(...extractDockerCommandClaims(line, source));
   });

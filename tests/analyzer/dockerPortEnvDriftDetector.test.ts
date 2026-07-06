@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRepository } from '@/lib/analyzer/analyzeRepository';
-import type { DriftIssue } from '@/lib/analyzer/types';
+import type { DriftIssue, RepoSnapshot } from '@/lib/analyzer/types';
 import { loadFixtureRepo } from '../helpers/loadFixtureRepo';
 
 function dockerIssues(name: string): DriftIssue[] {
   return analyzeRepository(loadFixtureRepo(name)).filter(
     (issue) => issue.detectorId === 'docker-drift',
   );
+}
+
+function dockerIssuesFrom(files: RepoSnapshot['files']): DriftIssue[] {
+  return analyzeRepository({
+    repo: { owner: 'o', name: 'r' },
+    files,
+    allPaths: files.map((f) => f.path),
+  }).filter((i) => i.detectorId === 'docker-drift');
 }
 
 describe('dockerDriftDetector — port drift', () => {
@@ -45,5 +53,33 @@ describe('dockerDriftDetector — env drift', () => {
 
   it('does not flag a compose-required env var that is present in .env.example', () => {
     expect(dockerIssues('docker-env-in-example')).toHaveLength(0);
+  });
+
+  it('ignores .devcontainer/ and .github/ compose files (tooling, not deployment)', () => {
+    for (const dir of ['.devcontainer', '.github']) {
+      const issues = dockerIssuesFrom([
+        { path: 'package.json', content: '{"name":"x"}' },
+        { path: 'README.md', content: '# x' },
+        {
+          path: `${dir}/docker-compose.yml`,
+          content: 'services:\n  a:\n    environment:\n      - CI_ONLY_VAR\n',
+        },
+      ]);
+      expect(issues, dir).toHaveLength(0);
+    }
+  });
+
+  it('does not flag common infra vars (TMPDIR) required by compose', () => {
+    const issues = dockerIssuesFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      {
+        path: 'docker-compose.yml',
+        content: 'services:\n  a:\n    environment:\n      - TMPDIR\n      - APP_SECRET\n',
+      },
+    ]);
+    // TMPDIR ignored; APP_SECRET still flagged.
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('APP_SECRET');
   });
 });

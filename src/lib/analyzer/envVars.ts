@@ -3,6 +3,34 @@ import type { EnvVarOccurrence, RepoFile } from './types';
 const SOURCE_EXTENSIONS = new Set(['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs']);
 const ENV_EXAMPLE_RE = /^\.env\.(example|sample|template)$/i;
 
+// Ubiquitous runtime / platform / CI vars that are noise unless a README
+// explicitly documents them as required app config. Shared by env-var-drift and
+// docker-drift so neither flags them.
+const COMMON_ENV_VARS = new Set([
+  // OS / shell
+  'PATH', 'HOME', 'PWD', 'USER', 'SHELL', 'TERM', 'LANG', 'TMPDIR', 'TZ', 'HOSTNAME', 'LOGNAME',
+  // Node runtime / native tooling
+  'NODE_ENV', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_NO_WARNINGS', 'NODE_TLS_REJECT_UNAUTHORIZED',
+  'UV_THREADPOOL_SIZE', 'NAPI_RS_ASYNC_WORK_POOL_SIZE',
+  // Networking
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
+  // CI / logging / misc
+  'CI', 'DEBUG', 'FORCE_COLOR', 'NO_COLOR', 'PORT',
+  // GitHub Actions built-ins
+  'GITHUB_TOKEN', 'GITHUB_OUTPUT', 'GITHUB_ENV', 'GITHUB_WORKSPACE', 'GITHUB_SHA', 'GITHUB_REF',
+  // Platform-injected
+  'VERCEL', 'VERCEL_URL', 'VERCEL_ENV',
+]);
+
+// Host-injected platform/CI prefixes, not app config.
+const COMMON_ENV_PREFIXES = [
+  'npm_', 'VERCEL_', 'RAILWAY_', 'RENDER_', 'CF_PAGES', 'NETLIFY', 'GITHUB_', 'RUNNER_', 'INPUT_',
+];
+
+export function isCommonEnv(name: string): boolean {
+  return COMMON_ENV_VARS.has(name) || COMMON_ENV_PREFIXES.some((p) => name.startsWith(p));
+}
+
 // Env var read patterns in source code. All capture the variable name only.
 // `importMeta` patterns are Vite's `import.meta.env`, which exposes build-time
 // built-ins that aren't user-provided config.
@@ -101,6 +129,10 @@ export function extractEnvUsagesFromSource(file: RepoFile): EnvVarOccurrence[] {
         if (seenOnLine.has(name) || isPlaceholderName(name)) continue;
         if (importMeta && VITE_BUILTINS.has(name)) continue;
         if (isInsideComment(line, match.index ?? 0)) continue;
+        // A write (`process.env.X = …`) sets config, it doesn't read undocumented
+        // config — skip it. `===`/`==` comparisons are reads and are kept.
+        const after = line.slice((match.index ?? 0) + match[0].length);
+        if (/^\s*=(?!=)/.test(after)) continue;
         seenOnLine.add(name);
         occurrences.push({
           name,

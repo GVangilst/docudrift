@@ -174,4 +174,78 @@ describe('envVarDriftDetector', () => {
   it('ignores env reads in a *-test script (manual-security-test.cjs)', () => {
     expect(envIssues('env-test-script')).toHaveLength(0);
   });
+
+  it('ignores env reads in .github/, examples/, benchmarking/ but keeps app source', () => {
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      { path: '.github/actions/a/src/x.ts', content: 'const a = process.env.CI_SECRET;' },
+      { path: 'examples/basic/config/port.js', content: 'const p = process.env.DEMO_PORT;' },
+      { path: 'benchmarking/run.js', content: 'const d = process.env.BENCH_DIR;' },
+      { path: 'src/app.ts', content: 'const r = process.env.APP_RUNTIME_VAR;' },
+    ]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('APP_RUNTIME_VAR');
+  });
+
+  it('ignores env reads in a bare test.ts and in a docusaurus.config.js', () => {
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      { path: 'src/add/test.ts', content: 'const z = process.env.tzX;' },
+      { path: 'dev-docs/docusaurus.config.js', content: 'process.env.IS_PREACT = "false";' },
+    ]);
+    expect(issues).toHaveLength(0);
+  });
+
+  it('ignores a process.env write and __checks__/ tooling, keeps a real read', () => {
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      { path: 'src/main.ts', content: 'process.env.TRIGGER_VERSION = TRIGGER_VERSION;\nconst a = process.env.REAL_ONE;' },
+      { path: '__checks__/dashboard.check.js', content: 'const u = process.env.ENVIRONMENT_URL;' },
+    ]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('REAL_ONE');
+    expect(issues.some((i) => /TRIGGER_VERSION|ENVIRONMENT_URL/.test(i.title))).toBe(false);
+  });
+
+  it('does not treat a SCREAMING_SNAKE heading or placeholder tokens as env vars', () => {
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      {
+        path: 'README.md',
+        content:
+          '# x\n\n##### CLIENT_FETCH_ERROR\n\nUse `postgres://u:YOUR_PASSWORD@h/db` and [YOUR_RESPONSIBILITY_1].\n',
+      },
+    ]);
+    expect(
+      issues.some((i) => /CLIENT_FETCH_ERROR|YOUR_PASSWORD|YOUR_RESPONSIBILITY/.test(i.title)),
+    ).toBe(false);
+  });
+
+  it('does not report a documented common var (NODE_OPTIONS) as unused (Rule A)', () => {
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x\n\nSet `NODE_OPTIONS` to raise the memory limit.' },
+    ]);
+    expect(issues).toHaveLength(0);
+  });
+
+  it('suppresses "documented but unused" (Rule A) when repo source was not fully fetched', () => {
+    const files = [
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x\n\nSet `FEATURE_FLAG_ONE` to enable the feature.' },
+    ];
+    // Complete coverage → Rule A fires.
+    expect(envFrom(files)).toHaveLength(1);
+    // A source file exists in the tree but wasn't fetched → Rule A suppressed
+    // (FEATURE_FLAG_ONE might be read there).
+    const suppressed = analyzeRepository({
+      repo: { owner: 'o', name: 'r' },
+      files,
+      allPaths: [...files.map((f) => f.path), 'src/feature.ts'],
+    }).filter((i) => i.detectorId === 'env-var-drift');
+    expect(suppressed).toHaveLength(0);
+  });
 });

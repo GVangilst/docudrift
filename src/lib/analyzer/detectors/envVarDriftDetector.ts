@@ -1,4 +1,4 @@
-import { redactEnvValues } from '../envVars';
+import { isCommonEnv, redactEnvValues } from '../envVars';
 import { isToolingPath } from '../keyFiles';
 import type {
   DocClaim,
@@ -9,27 +9,6 @@ import type {
 } from '../types';
 
 const DETECTOR_ID = 'env-var-drift';
-
-// Ubiquitous runtime / platform / tooling vars that are noise unless the README
-// explicitly documents them as required app config.
-const COMMON_ENV_VARS = new Set([
-  // OS / shell
-  'PATH', 'HOME', 'PWD', 'USER', 'SHELL', 'TERM', 'LANG', 'TMPDIR', 'TZ', 'HOSTNAME', 'LOGNAME',
-  // Node runtime / native tooling
-  'NODE_ENV', 'NODE_OPTIONS', 'NODE_PATH', 'NODE_NO_WARNINGS', 'NODE_TLS_REJECT_UNAUTHORIZED',
-  'UV_THREADPOOL_SIZE', 'NAPI_RS_ASYNC_WORK_POOL_SIZE',
-  // CI / logging / misc
-  'CI', 'DEBUG', 'FORCE_COLOR', 'NO_COLOR', 'PORT',
-  // Platform-injected
-  'VERCEL', 'VERCEL_URL', 'VERCEL_ENV',
-]);
-
-// Platform env prefixes that are host-injected, not app config.
-const COMMON_ENV_PREFIXES = ['npm_', 'VERCEL_', 'RAILWAY_', 'RENDER_', 'CF_PAGES', 'NETLIFY'];
-
-function isCommonEnv(name: string): boolean {
-  return COMMON_ENV_VARS.has(name) || COMMON_ENV_PREFIXES.some((p) => name.startsWith(p));
-}
 
 /** Keep the first occurrence per name so evidence is stable and deduped. */
 function firstByName(occurrences: EnvVarOccurrence[]): Map<string, EnvVarOccurrence> {
@@ -78,8 +57,13 @@ export function envVarDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
   const issues: DriftIssue[] = [];
 
   // Rule A (medium): documented in README, but nothing declares or uses it.
-  for (const [name, claim] of documented) {
+  // Only trustworthy when all source was fetched — otherwise "nothing uses it"
+  // may just mean the consuming file was dropped by the fetch cap.
+  for (const [name, claim] of truth.sourceComplete ? documented : []) {
     if (exampleNames.has(name) || codeNames.has(name) || composeEnvNames.has(name)) continue;
+    // Common/platform knobs (NODE_OPTIONS, …) are consumed by Node/tooling, not
+    // app source — "documents it but nothing reads it" is not drift for those.
+    if (isCommonEnv(name)) continue;
     issues.push({
       id: `${DETECTOR_ID}:documented-unused:${name}`,
       detectorId: DETECTOR_ID,

@@ -78,4 +78,10 @@ describe('packageManagerDriftDetector', () => {
     const issues = pmIssuesFor('# x\n\n```bash\n$ npm install # or pnpm install or yarn install\n```\n');
     expect(issues).toHaveLength(0);
   });
+
+  it('does not treat a package-manager mention in prose/table as a command', () => {
+    // cal.com style: a table cell mentioning "Nodejs/NPM build options".
+    const issues = pmIssuesFor('# x\n\n| MAX_OLD_SPACE_SIZE | Needed for Nodejs/NPM build options |\n');
+    expect(issues).toHaveLength(0);
+  });
 });

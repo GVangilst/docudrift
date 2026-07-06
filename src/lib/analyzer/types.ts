@@ -109,6 +109,12 @@ export type TruthModel = {
   nodeVersionRequirements: NodeVersionRequirement[];
   /** Docker/compose files present in the repo. */
   docker: DockerInfo;
+  /**
+   * True when every app-source file in the repo tree was actually fetched — i.e.
+   * no source was dropped by the fetch cap. When false, "nothing reads X" can't
+   * be asserted, so the documented-but-unused env rule is suppressed.
+   */
+  sourceComplete: boolean;
 };
 
 /** The kinds of claims extractDocClaims currently knows how to find. */
