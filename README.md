@@ -26,3 +26,13 @@ set of key files (`package.json`, env examples, Docker files, lockfiles,
 capped source files), run a deterministic detector suite against them, and
 return a report of drift findings with evidence and suggested fixes — no auth,
 no private repos, no PR creation, no AI-generated fixes.
+
+## Environment variables
+
+Copy `.env.example` to `.env` and set:
+
+- `DATABASE_URL` — PostgreSQL connection string used by Prisma. Persistence
+  isn't wired up yet, so it's not required to run the app today.
+- `GITHUB_TOKEN` — optional GitHub personal access token that raises the API
+  rate limit from 60 to 5,000 requests/hour. Public read access is enough; the
+  app runs without it.
