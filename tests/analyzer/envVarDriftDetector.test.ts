@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRepository } from '@/lib/analyzer/analyzeRepository';
-import type { DriftIssue } from '@/lib/analyzer/types';
+import type { DriftIssue, RepoSnapshot } from '@/lib/analyzer/types';
 import { loadFixtureRepo } from '../helpers/loadFixtureRepo';
 
 function envIssues(name: string): DriftIssue[] {
@@ -74,5 +74,22 @@ describe('envVarDriftDetector', () => {
     expect(issues).toHaveLength(1);
     expect(issues[0].title).toContain('DATABASE_URL');
     expect(issues.some((i) => /\bFOO\b|`X`/.test(i.title))).toBe(false);
+  });
+
+  it('ignores env usage in test/fixture paths but keeps real source', () => {
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x"}' },
+        { path: 'README.md', content: '# x' },
+        { path: 'tests/fixtures/demo/src/app.js', content: 'const s = process.env.FIXTURE_SECRET;' },
+        { path: 'src/real.js', content: 'const r = process.env.REAL_TOKEN;' },
+      ],
+      allPaths: ['package.json', 'README.md', 'tests/fixtures/demo/src/app.js', 'src/real.js'],
+    };
+    const issues = analyzeRepository(snapshot).filter((i) => i.detectorId === 'env-var-drift');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('REAL_TOKEN');
+    expect(issues.some((i) => /FIXTURE_SECRET/.test(i.title))).toBe(false);
   });
 });

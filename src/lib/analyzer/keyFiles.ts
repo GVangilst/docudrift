@@ -16,3 +16,13 @@ export const LOCKFILE_NAMES = new Set(LOCKFILE_MANAGERS.map((lock) => lock.file)
 
 /** Root files carrying a Node.js version requirement (parsed in nodeVersions.ts). */
 export const NODE_VERSION_FILES = new Set(['.nvmrc', '.node-version', '.tool-versions']);
+
+// A path segment that marks a test/fixture directory, or a `*.test.*`/`*.spec.*`
+// filename. Files under these aren't the app's real config surface, so the
+// source/env scanners skip them (e.g. fake repos under `tests/fixtures/`).
+const TEST_DIR_RE = /(^|\/)(tests?|__tests__|__mocks__|__fixtures__|fixtures|e2e|cypress)(\/|$)/i;
+const TEST_FILE_RE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
+
+export function isTestPath(path: string): boolean {
+  return TEST_DIR_RE.test(path) || TEST_FILE_RE.test(path);
+}

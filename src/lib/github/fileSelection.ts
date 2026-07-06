@@ -1,6 +1,6 @@
 import { isDockerfile, isComposeFile } from '../analyzer/docker';
 import { isEnvExampleFile, isSourceFile } from '../analyzer/envVars';
-import { LOCKFILE_NAMES, NODE_VERSION_FILES } from '../analyzer/keyFiles';
+import { LOCKFILE_NAMES, NODE_VERSION_FILES, isTestPath } from '../analyzer/keyFiles';
 
 /** A blob/tree entry from GitHub's recursive git-tree response. */
 export type TreeEntry = { path: string; type: string; size?: number };
@@ -38,7 +38,8 @@ function isAlwaysIncluded(path: string): boolean {
  */
 export function selectKeyFiles(entries: TreeEntry[]): string[] {
   const blobs = entries.filter(
-    (entry) => entry.type === 'blob' && (entry.size ?? 0) <= MAX_FILE_BYTES,
+    (entry) =>
+      entry.type === 'blob' && (entry.size ?? 0) <= MAX_FILE_BYTES && !isTestPath(entry.path),
   );
 
   const selected = new Set<string>();
