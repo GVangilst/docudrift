@@ -14,17 +14,20 @@ const COMMON_ENV_VARS = new Set([
   'UV_THREADPOOL_SIZE', 'NAPI_RS_ASYNC_WORK_POOL_SIZE',
   // Networking
   'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
-  // CI / logging / misc
-  'CI', 'DEBUG', 'FORCE_COLOR', 'NO_COLOR', 'PORT',
+  // CI / logging / misc / package-manager-injected
+  'CI', 'DEBUG', 'FORCE_COLOR', 'NO_COLOR', 'PORT', 'INIT_CWD', 'PROJECT_CWD', 'CRON_SECRET',
   // GitHub Actions built-ins
   'GITHUB_TOKEN', 'GITHUB_OUTPUT', 'GITHUB_ENV', 'GITHUB_WORKSPACE', 'GITHUB_SHA', 'GITHUB_REF',
-  // Platform-injected
-  'VERCEL', 'VERCEL_URL', 'VERCEL_ENV',
+  // Netlify build environment
+  'DEPLOY_PRIME_URL', 'COMMIT_REF', 'BRANCH', 'REVIEW_ID', 'PULL_REQUEST', 'CONTEXT',
+  // Framework/platform runtime
+  'NEXT_RUNTIME', 'VERCEL', 'VERCEL_URL', 'VERCEL_ENV',
 ]);
 
-// Host-injected platform/CI prefixes, not app config.
+// Host-injected platform / CI / test-runner prefixes, not app config.
 const COMMON_ENV_PREFIXES = [
-  'npm_', 'VERCEL_', 'RAILWAY_', 'RENDER_', 'CF_PAGES', 'NETLIFY', 'GITHUB_', 'RUNNER_', 'INPUT_',
+  'npm_', 'VERCEL_', 'RAILWAY_', 'RENDER_', 'CF_PAGES', 'NETLIFY', 'FLY_', 'GITHUB_', 'RUNNER_',
+  'INPUT_', 'PLAYWRIGHT_', 'DEBUG_',
 ];
 
 export function isCommonEnv(name: string): boolean {

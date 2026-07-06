@@ -5,7 +5,7 @@ import {
   isEnvExampleFile,
   isSourceFile,
 } from './envVars';
-import { LOCKFILE_MANAGERS, isGeneratedPath, isTestPath, isToolingPath } from './keyFiles';
+import { LOCKFILE_MANAGERS, isGeneratedPath, isTestPath } from './keyFiles';
 import { collectNodeVersionRequirements } from './nodeVersions';
 import { getRootFile } from './repoSnapshot';
 import type { EnvVarOccurrence, LockfileInfo, PackageManager, RepoSnapshot, TruthModel } from './types';
@@ -76,13 +76,6 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     voltaNode,
   );
 
-  // Did we fetch every app-source file, or did the cap drop some? Compare the
-  // full tree's app-source files against the fetched set.
-  const isAppSource = (p: string) =>
-    isSourceFile(p) && !isTestPath(p) && !isGeneratedPath(p) && !isToolingPath(p);
-  const fetchedPaths = new Set(snapshot.files.map((file) => file.path));
-  const sourceComplete = filePaths.every((p) => !isAppSource(p) || fetchedPaths.has(p));
-
   return {
     packageJson,
     hasRootServerJs: rootFiles.includes('server.js'),
@@ -94,6 +87,5 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     packageManager,
     nodeVersionRequirements,
     docker: collectDockerInfo(snapshot),
-    sourceComplete,
   };
 }

@@ -43,13 +43,13 @@ export function isGeneratedPath(path: string): boolean {
 // to down-scope the high-severity "source reads X" env rule (still counts as
 // "usage" for the documented-but-unused and compose checks).
 const TOOLING_DIR_RE =
-  /(^|\/)(scripts|\.github|\.devcontainer|examples?|demos?|benchmarks?|benchmarking|dev-docs)(\/|$)/i;
+  /(^|\/)(scripts|\.github|\.devcontainer|\.vitepress|\.vuepress|examples?|demos?|benchmarks?|benchmarking|dev-docs|testing|mocks|[^/]+\.init)(\/|$)/i;
 // Known bundler / build / test / lint / docs tool config files, at any depth
 // (monorepo packages have their own). Deliberately an allowlist, NOT any
 // `*.config.*`, so application config modules like `src/app.config.ts` or
 // `database.config.ts` (which are real runtime config) are still scanned.
 const BUILD_TOOL_CONFIGS =
-  'rollup|rolldown|vite|vitest|webpack|rspack|esbuild|tsup|next|nuxt|svelte|astro|remix|gatsby|metro|docusaurus|babel|jest|playwright|cypress|karma|tailwind|postcss|eslint|prettier|stylelint|commitlint|lint-staged';
+  'rollup|rolldown|vite|vitepress|vuepress|vitest|webpack|rspack|esbuild|tsup|next|next-sitemap|nuxt|svelte|astro|remix|react-router|gatsby|metro|docusaurus|babel|jest|playwright|cypress|karma|checkly|sentry|tailwind|postcss|eslint|prettier|stylelint|commitlint|lint-staged';
 const TOOLING_FILE_RE = new RegExp(`(^|/)(?:${BUILD_TOOL_CONFIGS})\\.config\\.[cm]?[jt]s$`, 'i');
 
 export function isToolingPath(path: string): boolean {

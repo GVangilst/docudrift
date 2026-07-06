@@ -75,10 +75,8 @@ export type DockerInfo = {
   exposedPorts: number[];
   /** Port mappings declared in compose `ports:` blocks. */
   composePorts: PortMapping[];
-  /** Env keys the compose config needs from the host (bare `- KEY` or `${KEY}`). */
-  requiredEnvKeys: string[];
-  /** All env keys referenced in compose `environment:` blocks (set or required). */
-  composeEnvKeys: string[];
+  /** Per compose file, the env keys it needs from the host (bare `- KEY` / `${KEY}`). */
+  composeRequiredEnv: { file: string; keys: string[] }[];
 };
 
 /**
@@ -109,12 +107,6 @@ export type TruthModel = {
   nodeVersionRequirements: NodeVersionRequirement[];
   /** Docker/compose files present in the repo. */
   docker: DockerInfo;
-  /**
-   * True when every app-source file in the repo tree was actually fetched — i.e.
-   * no source was dropped by the fetch cap. When false, "nothing reads X" can't
-   * be asserted, so the documented-but-unused env rule is suppressed.
-   */
-  sourceComplete: boolean;
 };
 
 /** The kinds of claims extractDocClaims currently knows how to find. */

@@ -71,16 +71,13 @@ function parseExposedPorts(content: string): number[] {
 function parseCompose(content: string): {
   ports: PortMapping[];
   requiredEnvKeys: string[];
-  envKeys: string[];
 } {
   const ports: PortMapping[] = [];
   const requiredEnvKeys = new Set<string>();
-  const envKeys = new Set<string>();
 
   // `${VAR}` / `${VAR:-default}` interpolation references the host env.
   for (const match of content.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-[^}]*)?\}/g)) {
     requiredEnvKeys.add(match[1]);
-    envKeys.add(match[1]);
   }
 
   let inPorts = false;
@@ -124,20 +121,18 @@ function parseCompose(content: string): {
       // List form: `- KEY` (required from host) or `- KEY=value` (set inline).
       const listItem = /^\s*-\s*([A-Za-z_][A-Za-z0-9_]*)(=?)/.exec(line);
       if (listItem) {
-        envKeys.add(listItem[1]);
         if (listItem[2] !== '=') requiredEnvKeys.add(listItem[1]);
         continue;
       }
       // Map form: `KEY:` (empty → required) or `KEY: value` (set inline).
       const mapItem = /^\s*([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/.exec(line);
       if (mapItem) {
-        envKeys.add(mapItem[1]);
         if (mapItem[2].trim() === '') requiredEnvKeys.add(mapItem[1]);
       }
     }
   }
 
-  return { ports, requiredEnvKeys: [...requiredEnvKeys], envKeys: [...envKeys] };
+  return { ports, requiredEnvKeys: [...requiredEnvKeys] };
 }
 
 /** Collects Docker/compose file evidence and parsed port/env config from the repo. */
@@ -146,8 +141,7 @@ export function collectDockerInfo(snapshot: RepoSnapshot): DockerInfo {
   const composeFilePaths: string[] = [];
   const exposedPorts: number[] = [];
   const composePorts: PortMapping[] = [];
-  const requiredEnvKeys = new Set<string>();
-  const composeEnvKeys = new Set<string>();
+  const composeRequiredEnv: { file: string; keys: string[] }[] = [];
 
   for (const file of snapshot.files) {
     if (isDockerfile(file.path)) {
@@ -157,8 +151,7 @@ export function collectDockerInfo(snapshot: RepoSnapshot): DockerInfo {
       composeFilePaths.push(file.path);
       const parsed = parseCompose(file.content);
       composePorts.push(...parsed.ports);
-      parsed.requiredEnvKeys.forEach((key) => requiredEnvKeys.add(key));
-      parsed.envKeys.forEach((key) => composeEnvKeys.add(key));
+      composeRequiredEnv.push({ file: file.path, keys: parsed.requiredEnvKeys });
     }
   }
 
@@ -169,7 +162,6 @@ export function collectDockerInfo(snapshot: RepoSnapshot): DockerInfo {
     composeFilePaths,
     exposedPorts,
     composePorts,
-    requiredEnvKeys: [...requiredEnvKeys],
-    composeEnvKeys: [...composeEnvKeys],
+    composeRequiredEnv,
   };
 }

@@ -40,11 +40,25 @@ describe('dockerDriftDetector — port drift', () => {
 });
 
 describe('dockerDriftDetector — env drift', () => {
-  it('flags a compose-required env var that is undocumented and not in .env.example (medium)', () => {
+  it('emits one aggregated finding for compose-required vars missing from .env.example', () => {
+    // .env.example exists (has PORT) but the compose-required DATABASE_URL isn't in it.
     const issues = dockerIssues('docker-env-required');
     expect(issues).toHaveLength(1);
     expect(issues[0].severity).toBe('warning');
-    expect(issues[0].title).toContain('DATABASE_URL');
+    expect(issues[0].title).toContain('1 undocumented env var');
+    expect(issues[0].description).toContain('DATABASE_URL');
+  });
+
+  it('does not flag compose env when the repo has no .env.example (convention not used)', () => {
+    const issues = dockerIssuesFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      {
+        path: 'docker-compose.yml',
+        content: 'services:\n  a:\n    environment:\n      - SOME_SECRET\n',
+      },
+    ]);
+    expect(issues).toHaveLength(0);
   });
 
   it('does not flag a compose-required env var that the README documents', () => {
@@ -60,6 +74,7 @@ describe('dockerDriftDetector — env drift', () => {
       const issues = dockerIssuesFrom([
         { path: 'package.json', content: '{"name":"x"}' },
         { path: 'README.md', content: '# x' },
+        { path: '.env.example', content: 'PORT=3000\n' }, // gate open — proves the *exclusion* stops it
         {
           path: `${dir}/docker-compose.yml`,
           content: 'services:\n  a:\n    environment:\n      - CI_ONLY_VAR\n',
@@ -73,13 +88,15 @@ describe('dockerDriftDetector — env drift', () => {
     const issues = dockerIssuesFrom([
       { path: 'package.json', content: '{"name":"x"}' },
       { path: 'README.md', content: '# x' },
+      { path: '.env.example', content: 'PORT=3000\n' },
       {
         path: 'docker-compose.yml',
         content: 'services:\n  a:\n    environment:\n      - TMPDIR\n      - APP_SECRET\n',
       },
     ]);
-    // TMPDIR ignored; APP_SECRET still flagged.
+    // TMPDIR ignored (common infra); APP_SECRET aggregated into one finding.
     expect(issues).toHaveLength(1);
-    expect(issues[0].title).toContain('APP_SECRET');
+    expect(issues[0].description).toContain('APP_SECRET');
+    expect(issues[0].description).not.toContain('TMPDIR');
   });
 });

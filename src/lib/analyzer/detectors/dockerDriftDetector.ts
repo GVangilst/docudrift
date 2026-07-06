@@ -140,27 +140,31 @@ export function dockerDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
     }
   }
 
-  // Env drift: env vars the compose config needs from the host but that are
-  // undocumented in the README, absent from .env.example, and unused in source.
-  if (docker.requiredEnvKeys.length > 0) {
+  // Env drift: env vars a compose file needs from the host that aren't documented.
+  // Gated on the repo actually using a `.env.example` (so a missing var is real
+  // drift, not just a repo that doesn't use the convention), and aggregated into
+  // ONE finding per compose file instead of a wall of per-var warnings.
+  if (truth.envVarsFromExamples.length > 0) {
     const documented = new Set(
       claims.filter((claim): claim is EnvVarClaim => claim.kind === 'env-var').map((c) => c.name),
     );
     const inExample = new Set(truth.envVarsFromExamples.map((occ) => occ.name));
     const inCode = new Set(truth.envVarsFromCode.map((occ) => occ.name));
-    const composeFile = docker.composeFilePaths[0] ?? 'docker-compose.yml';
 
-    for (const key of docker.requiredEnvKeys) {
-      if (documented.has(key) || inExample.has(key) || inCode.has(key)) continue;
-      if (isCommonEnv(key)) continue; // TMPDIR and other host/CI infra vars
-      push(`env:${key}`, {
-        id: `${DETECTOR_ID}:env-undocumented:${key}`,
+    for (const { file, keys } of docker.composeRequiredEnv) {
+      const missing = keys.filter(
+        (key) => !documented.has(key) && !inExample.has(key) && !inCode.has(key) && !isCommonEnv(key),
+      );
+      if (missing.length === 0) continue;
+      const list = missing.join(', ');
+      push(`compose-env:${file}`, {
+        id: `${DETECTOR_ID}:compose-env:${file}`,
         detectorId: DETECTOR_ID,
         severity: 'warning',
-        title: `Compose requires env var \`${key}\` but it is undocumented`,
-        description: `${composeFile} requires the \`${key}\` environment variable from the host, but it is not documented in the README or present in any .env example file.`,
-        evidence: [{ label: composeFile, file: composeFile, line: 1, snippet: key }],
-        suggestedFix: `Document \`${key}\` in the README and add it to .env.example.`,
+        title: `${file} requires ${missing.length} undocumented env var${missing.length === 1 ? '' : 's'}`,
+        description: `\`${file}\` needs these env vars from the host, but they are not in the README or any .env example file: ${list}.`,
+        evidence: [{ label: file, file, line: 1, snippet: list }],
+        suggestedFix: `Add the missing vars to .env.example (and document them): ${list}.`,
       });
     }
   }

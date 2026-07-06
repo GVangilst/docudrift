@@ -159,25 +159,26 @@ presence, `process.env.X` source usages, `defaultBranch`/`commitSha`, and a
 
 ## Detector engine
 
-**Status: Partial — 2 of 10 detectors; no registry yet**
+**Status: Implemented — 6 detectors, registry + per-detector error isolation**
 
 - Detectors are plain functions `(claims: DocClaim[], truth: TruthModel) =>
-  DriftIssue[]`. `analyzeRepository()` calls them and concatenates results.
-- **Not yet built:** a detector registry, per-detector error isolation
-  (catch-and-skip), and severity ordering. Today detectors run in a fixed order
-  and each assigns its own `id`.
-- **Implemented detectors:**
-  - `commandDriftDetector` (id `command-drift`) — README `npm run X` / `npm
-    start` / `npm test` with no matching `package.json` script. Special case:
-    `npm start` is not flagged when a root `server.js` exists.
-  - `fileReferenceDriftDetector` (id `file-reference-drift`) — README references
-    to file paths that don't exist, with a fuzzy closest-path suggestion
-    (`levenshtein`/`closestMatch` in `fuzzyMatch.ts`). URLs and package names are
-    filtered out upstream in `extractDocClaims`.
-- **Planned detectors** (see [PRODUCT_SPEC.md](./PRODUCT_SPEC.md)):
-  `package-manager-mismatch`, `multiple-lockfiles`, `env-var-drift`,
-  `node-engine-mismatch`, `docker-drift`, plus stretch: `license-mismatch`,
-  `version-badge-drift`, `missing-core-sections`.
+  DriftIssue[]`, run from a registered list in `analyzeRepository()` with
+  catch-and-skip isolation (one throwing detector can't fail the scan); severity
+  ordering happens in `buildReport()`.
+- **Two confidence tiers, reflected in severity** (see PRODUCT_SPEC "Confidence
+  tiers & limitations"):
+  - **Structural (authoritative):** `command-drift`, `package-manager-drift`,
+    `multiple-lockfiles`, `node-engine-mismatch`, `file-reference-drift`
+    (dead-links, with a fuzzy closest-path suggestion), and `docker-drift`
+    file/port checks. Structured comparisons with definite answers.
+  - **Documentation-completeness (heuristic, `warning`):** `env-var-drift` flags
+    only vars the app source *reads* that neither the README nor `.env.example`
+    documents (the old "documented but nothing uses it" rule was **removed** — it
+    couldn't verify usage across YAML/CI/runtime/uncapped source). `docker-drift`
+    compose-env is **gated on a `.env.example` existing** and **aggregated into one
+    finding per compose file**. Non-app source (`scripts/`, `.github/`, `examples/`,
+    build configs, tests, generated) is excluded, and common platform/CI vars are
+    ignored (`keyFiles.ts` / `envVars.ts`).
 
 The finding shape is `DriftIssue` (the doc previously called this `Finding`):
 

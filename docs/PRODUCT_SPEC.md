@@ -79,7 +79,7 @@ Each detector below states what it compares, why it matters, and an example.
 | 1 | Missing/undocumented scripts | Commands referenced in README code blocks (`npm run X`, `yarn X`, `pnpm X`) vs. `package.json` `scripts` keys | A documented command that doesn't exist is an instant dead end for a new user | README says `npm run start:dev`; no such script in `package.json` |
 | 2 | Package manager mismatch | Install command shown in README (`npm install` / `yarn` / `pnpm install`) vs. which lockfile(s) actually exist | Following the "wrong" package manager's instructions can produce a broken or inconsistent install | README says `npm install`; repo only has `pnpm-lock.yaml` |
 | 3 | Multiple conflicting lockfiles | Presence of more than one of `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` | Ambiguous which manager is authoritative regardless of what docs say | Repo has both `package-lock.json` and `yarn.lock` |
-| 4 | Env var drift | Vars in `.env.example` vs. vars documented in a README "Environment/Configuration" section vs. `process.env.X` usages in source | Undocumented required vars or stale documented-but-unused vars both cause setup failures | `.env.example` has `STRIPE_SECRET_KEY`; README config table omits it |
+| 4 | Env var drift | `process.env.X` / `import.meta.env.X` reads in app source vs. what the README + `.env.example` document | An env var the app reads but that's documented nowhere causes silent setup failures | Source reads `STRIPE_SECRET_KEY`; it's in neither the README nor `.env.example` |
 | 5 | Node engine mismatch | `engines.node` in `package.json` vs. a stated Node version in README (e.g. "Requires Node 18+") | Wrong stated version leads to confusing runtime errors on install | `package.json` requires Node `>=20`; README says "Node 16 or later" |
 | 6 | Docker instructions drift | Ports/env vars in README's `docker run`/`docker-compose` examples vs. actual `Dockerfile` `EXPOSE` / `docker-compose.yml` ports & env | Wrong port docs mean "it's not working" support requests | README says app runs on `:3000`; Dockerfile exposes `8080` |
 | 7 | Dead file/link references | Relative links and inline file-path references in README vs. actual repository tree | Broken pointers erode trust and block navigation | README links to `docs/CONTRIBUTING.md`, file doesn't exist |
@@ -91,6 +91,29 @@ Detectors 1–7 are the MVP-critical set (they require cross-file drift, the app
 premise). Detectors 8–10 are included if time permits but are lower priority.
 Post-MVP candidates (not built now): dependency major-version claims in prose,
 CI badge vs. actual CI config, multi-branch drift over time.
+
+### Confidence tiers & limitations
+
+Not all detectors are equally reliable, and the product is honest about this via
+severity:
+
+- **Structural (authoritative) — `error`/definite:** missing-scripts,
+  package-manager-mismatch, multiple-lockfiles, node-engine-mismatch, dead-links,
+  and Docker file/port drift. These compare *structured* artifacts (does a script
+  exist? a file? a lockfile? a semver range?) and have definite answers — when they
+  fire, they're right.
+- **Documentation completeness (best-effort) — `warning`:** env-var drift ("app
+  source reads a var that neither the README nor `.env.example` documents") and
+  compose-env drift ("a `.env.example`-using repo's compose needs host vars that
+  aren't documented", aggregated into one finding per compose file). These read
+  *free-form README prose* and only a **capped sample of JS/TS source**, so they
+  are inherently heuristic — surfaced as warnings, never as hard errors.
+
+Two things are deliberately **not** attempted, because they can't be answered
+reliably this way: "is this env var *used* anywhere?" (usage also lives in
+YAML/CI, Dockerfiles, the runtime, and un-fetched source — so a "documented but
+nothing uses it" check was removed after it produced almost only false positives),
+and any AI/LLM judgment about whether prose "documents" something.
 
 ## Suggested fixes
 

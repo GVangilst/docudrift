@@ -14,20 +14,16 @@ describe('envVarDriftDetector', () => {
     expect(envIssues('env-all-consistent')).toHaveLength(0);
   });
 
-  it('flags a documented var that is unused (medium); an example-only var is not flagged', () => {
-    const issues = envIssues('env-doc-mismatch');
-    // MONGO_URI documented but unused → warning. DATABASE_URL is in .env.example
-    // (which is documentation), so it is intentionally not flagged.
-    expect(issues).toHaveLength(1);
-    expect(issues[0].title).toContain('MONGO_URI');
-    expect(issues[0].severity).toBe('warning');
-    expect(issues.some((i) => i.title.includes('DATABASE_URL'))).toBe(false);
+  it('does not flag a documented-but-unused var (the documented-but-unused rule was removed)', () => {
+    // MONGO_URI is documented in the README but not used; the old Rule A flagged
+    // this and produced almost only false positives, so it no longer fires.
+    expect(envIssues('env-doc-mismatch')).toHaveLength(0);
   });
 
-  it('flags a source-used var that is undocumented and has no example (high)', () => {
+  it('flags a source-used var that is undocumented and has no example (warning)', () => {
     const issues = envIssues('env-code-only');
     expect(issues).toHaveLength(1);
-    expect(issues[0].severity).toBe('error');
+    expect(issues[0].severity).toBe('warning'); // heuristic check → warning, not error
     expect(issues[0].title).toContain('STRIPE_SECRET_KEY');
     expect(issues[0].evidence[0].file).toBe('src/payments.js');
   });
@@ -45,14 +41,14 @@ describe('envVarDriftDetector', () => {
   it('detects process.env["KEY"] bracket access', () => {
     const issues = envIssues('env-bracket-usage');
     expect(issues).toHaveLength(1);
-    expect(issues[0].severity).toBe('error');
+    expect(issues[0].severity).toBe('warning');
     expect(issues[0].title).toContain('DATABASE_URL');
   });
 
   it('detects import.meta.env.KEY frontend access', () => {
     const issues = envIssues('env-import-meta');
     expect(issues).toHaveLength(1);
-    expect(issues[0].severity).toBe('error');
+    expect(issues[0].severity).toBe('warning');
     expect(issues[0].title).toContain('VITE_API_URL');
   });
 
@@ -160,17 +156,6 @@ describe('envVarDriftDetector', () => {
     expect(issues[0].evidence[0].file).toBe('src/config/database.config.ts');
   });
 
-  it('does not report "documented but unused" when the var is used in a script (Rule A)', () => {
-    // BUILD_TOKEN is documented AND read in scripts/release.js — it IS used, so
-    // Rule A must not fire (tooling reads still count as usage).
-    const issues = envFrom([
-      { path: 'package.json', content: '{"name":"x"}' },
-      { path: 'README.md', content: '# x\n\nSet `BUILD_TOKEN` for releases.' },
-      { path: 'scripts/release.js', content: 'const t = process.env.BUILD_TOKEN;' },
-    ]);
-    expect(issues).toHaveLength(0);
-  });
-
   it('ignores env reads in a *-test script (manual-security-test.cjs)', () => {
     expect(envIssues('env-test-script')).toHaveLength(0);
   });
@@ -224,28 +209,16 @@ describe('envVarDriftDetector', () => {
     ).toBe(false);
   });
 
-  it('does not report a documented common var (NODE_OPTIONS) as unused (Rule A)', () => {
+  it('ignores platform prefixes: a var read only via FLY_/PLAYWRIGHT_/DEBUG_ is not flagged', () => {
     const issues = envFrom([
       { path: 'package.json', content: '{"name":"x"}' },
-      { path: 'README.md', content: '# x\n\nSet `NODE_OPTIONS` to raise the memory limit.' },
+      { path: 'README.md', content: '# x' },
+      {
+        path: 'src/app.ts',
+        content:
+          'const a = process.env.FLY_REGION;\nconst b = process.env.PLAYWRIGHT_TEST_BASE_URL;\nconst c = process.env.DEBUG_FOO;\nconst d = process.env.INIT_CWD;',
+      },
     ]);
     expect(issues).toHaveLength(0);
-  });
-
-  it('suppresses "documented but unused" (Rule A) when repo source was not fully fetched', () => {
-    const files = [
-      { path: 'package.json', content: '{"name":"x"}' },
-      { path: 'README.md', content: '# x\n\nSet `FEATURE_FLAG_ONE` to enable the feature.' },
-    ];
-    // Complete coverage → Rule A fires.
-    expect(envFrom(files)).toHaveLength(1);
-    // A source file exists in the tree but wasn't fetched → Rule A suppressed
-    // (FEATURE_FLAG_ONE might be read there).
-    const suppressed = analyzeRepository({
-      repo: { owner: 'o', name: 'r' },
-      files,
-      allPaths: [...files.map((f) => f.path), 'src/feature.ts'],
-    }).filter((i) => i.detectorId === 'env-var-drift');
-    expect(suppressed).toHaveLength(0);
   });
 });
