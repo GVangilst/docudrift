@@ -1,11 +1,6 @@
 import { collectDockerInfo } from './docker';
-import {
-  extractEnvUsagesFromSource,
-  extractEnvVarsFromExample,
-  isEnvExampleFile,
-  isSourceFile,
-} from './envVars';
-import { LOCKFILE_MANAGERS, isGeneratedPath, isTestPath } from './keyFiles';
+import { extractEnvVarsFromExample, isEnvExampleFile } from './envVars';
+import { LOCKFILE_MANAGERS } from './keyFiles';
 import { collectNodeVersionRequirements } from './nodeVersions';
 import { getRootFile } from './repoSnapshot';
 import type { EnvVarOccurrence, LockfileInfo, PackageManager, RepoSnapshot, TruthModel } from './types';
@@ -47,18 +42,14 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
   const filePaths = snapshot.allPaths ?? snapshot.files.map((file) => file.path);
   const rootFiles = filePaths.filter((path) => !path.includes('/'));
 
+  // Env vars declared in `.env.example` files — the repo's structured, declared
+  // config surface. (We intentionally do NOT scan arbitrary source for
+  // `process.env.X`: deciding which files are "the app" is an unbounded
+  // directory-classification problem, so that check was removed.)
   const envVarsFromExamples: EnvVarOccurrence[] = [];
-  const envVarsFromCode: EnvVarOccurrence[] = [];
   for (const file of snapshot.files) {
-    // Skip test/fixture and build/vendored files. (Tooling/script/config reads
-    // are kept here so they still count as "usage" for the documented-but-unused
-    // and docker-compose checks; the high-severity "source reads X" rule filters
-    // them out itself — see envVarDriftDetector.)
-    if (isTestPath(file.path) || isGeneratedPath(file.path)) continue;
     if (isEnvExampleFile(file.path)) {
       envVarsFromExamples.push(...extractEnvVarsFromExample(file));
-    } else if (isSourceFile(file.path)) {
-      envVarsFromCode.push(...extractEnvUsagesFromSource(file));
     }
   }
 
@@ -82,7 +73,6 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     rootFiles,
     filePaths,
     envVarsFromExamples,
-    envVarsFromCode,
     lockfiles,
     packageManager,
     nodeVersionRequirements,

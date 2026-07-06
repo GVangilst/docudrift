@@ -2,22 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { selectKeyFiles } from '@/lib/github/fileSelection';
 
 describe('selectKeyFiles', () => {
-  it('selects key files and real source but excludes test/fixture files', () => {
+  it('selects only key structured/doc files, never arbitrary source', () => {
     const selected = selectKeyFiles([
       { path: 'package.json', type: 'blob', size: 20 },
       { path: 'README.md', type: 'blob', size: 40 },
-      { path: 'src/index.ts', type: 'blob', size: 100 },
-      { path: 'tests/fixtures/demo/.env.example', type: 'blob', size: 10 },
-      { path: 'tests/fixtures/demo/src/app.js', type: 'blob', size: 30 },
-      { path: 'src/util.test.ts', type: 'blob', size: 30 },
+      { path: 'pnpm-lock.yaml', type: 'blob', size: 500 },
+      { path: '.env.example', type: 'blob', size: 10 },
+      { path: 'docker-compose.yml', type: 'blob', size: 60 },
+      { path: 'Dockerfile', type: 'blob', size: 60 },
+      { path: 'src/index.ts', type: 'blob', size: 100 }, // arbitrary source — not needed
+      { path: 'apps/web/app/page.tsx', type: 'blob', size: 100 },
       { path: 'docs', type: 'tree' },
     ]);
 
-    expect(selected).toContain('package.json');
-    expect(selected).toContain('README.md');
-    expect(selected).toContain('src/index.ts');
-    expect(selected).not.toContain('tests/fixtures/demo/.env.example');
-    expect(selected).not.toContain('tests/fixtures/demo/src/app.js');
-    expect(selected).not.toContain('src/util.test.ts');
+    expect(selected.sort()).toEqual(
+      ['.env.example', 'Dockerfile', 'README.md', 'docker-compose.yml', 'package.json', 'pnpm-lock.yaml'].sort(),
+    );
+    // Arbitrary source content is never fetched (no detector reads it).
+    expect(selected).not.toContain('src/index.ts');
+    expect(selected).not.toContain('apps/web/app/page.tsx');
   });
 });

@@ -97,8 +97,6 @@ export type TruthModel = {
   filePaths: string[];
   /** Env var names declared in `.env.example`/`.sample`/`.template` files. */
   envVarsFromExamples: EnvVarOccurrence[];
-  /** Env var names read in source (process.env.X, import.meta.env.X, etc). */
-  envVarsFromCode: EnvVarOccurrence[];
   /** Lockfiles present at the repo root. */
   lockfiles: LockfileInfo[];
   /** Inferred package manager — set only when exactly one manager's lockfile exists. */

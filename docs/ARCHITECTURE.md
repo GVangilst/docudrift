@@ -159,26 +159,31 @@ presence, `process.env.X` source usages, `defaultBranch`/`commitSha`, and a
 
 ## Detector engine
 
-**Status: Implemented — 6 detectors, registry + per-detector error isolation**
+**Status: Implemented — 5 detectors, registry + per-detector error isolation**
 
 - Detectors are plain functions `(claims: DocClaim[], truth: TruthModel) =>
   DriftIssue[]`, run from a registered list in `analyzeRepository()` with
   catch-and-skip isolation (one throwing detector can't fail the scan); severity
   ordering happens in `buildReport()`.
-- **Two confidence tiers, reflected in severity** (see PRODUCT_SPEC "Confidence
-  tiers & limitations"):
-  - **Structural (authoritative):** `command-drift`, `package-manager-drift`,
-    `multiple-lockfiles`, `node-engine-mismatch`, `file-reference-drift`
-    (dead-links, with a fuzzy closest-path suggestion), and `docker-drift`
-    file/port checks. Structured comparisons with definite answers.
-  - **Documentation-completeness (heuristic, `warning`):** `env-var-drift` flags
-    only vars the app source *reads* that neither the README nor `.env.example`
-    documents (the old "documented but nothing uses it" rule was **removed** — it
-    couldn't verify usage across YAML/CI/runtime/uncapped source). `docker-drift`
-    compose-env is **gated on a `.env.example` existing** and **aggregated into one
-    finding per compose file**. Non-app source (`scripts/`, `.github/`, `examples/`,
-    build configs, tests, generated) is excluded, and common platform/CI vars are
-    ignored (`keyFiles.ts` / `envVars.ts`).
+- **All detectors are structural** — they compare README claims against
+  structured artifacts, never against arbitrary scanned source (see PRODUCT_SPEC
+  "Confidence tiers & limitations"):
+  - `command-drift` — README `npm run/start/test` vs `package.json` scripts.
+  - `package-manager-drift` — README install command vs the lockfile present.
+  - `node-engine-mismatch` — README Node version vs `engines.node`/`.nvmrc`.
+  - `file-reference-drift` (dead-links) — README path references vs the file tree,
+    with a fuzzy closest-path suggestion.
+  - `docker-drift` — README `docker build`/`compose`/`run` vs Dockerfile/compose
+    presence, `EXPOSE`/compose ports, and compose-required env vars missing from a
+    `.env.example` (aggregated into one `warning` per compose file). Compose files
+    under tooling dirs (`.github/`, `.devcontainer/`, `scripts/`, …) are excluded.
+- **Removed:** `env-var-drift`. Flagging "the app reads an undocumented
+  `process.env.X`" required scanning arbitrary source and classifying every
+  directory as app-vs-tooling — an unbounded problem (a directory denylist over an
+  open vocabulary), so it produced open-ended false positives. Consequently the
+  analyzer **no longer fetches arbitrary source files** — `selectKeyFiles` fetches
+  only README, `package.json`, lockfiles, node-version files, `.env.example`s, and
+  Docker/compose files.
 
 The finding shape is `DriftIssue` (the doc previously called this `Finding`):
 

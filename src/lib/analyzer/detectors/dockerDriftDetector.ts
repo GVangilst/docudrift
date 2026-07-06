@@ -149,11 +149,10 @@ export function dockerDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
       claims.filter((claim): claim is EnvVarClaim => claim.kind === 'env-var').map((c) => c.name),
     );
     const inExample = new Set(truth.envVarsFromExamples.map((occ) => occ.name));
-    const inCode = new Set(truth.envVarsFromCode.map((occ) => occ.name));
 
     for (const { file, keys } of docker.composeRequiredEnv) {
       const missing = keys.filter(
-        (key) => !documented.has(key) && !inExample.has(key) && !inCode.has(key) && !isCommonEnv(key),
+        (key) => !documented.has(key) && !inExample.has(key) && !isCommonEnv(key),
       );
       if (missing.length === 0) continue;
       const list = missing.join(', ');
