@@ -84,6 +84,37 @@ describe('dockerDriftDetector — env drift', () => {
     }
   });
 
+  it('does not flag a `${VAR:-default}` compose interpolation (optional), only bare `${VAR}`', () => {
+    const issues = dockerIssuesFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      { path: '.env.example', content: 'PORT=3000\n' },
+      {
+        path: 'docker-compose.yml',
+        // DATABASE_URL is bare → required; REDIS_PORT has a default → optional.
+        content:
+          'services:\n  a:\n    environment:\n      DB_URL: ${DATABASE_URL}\n      REDIS: ${REDIS_PORT:-6379}\n',
+      },
+    ]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].description).toContain('DATABASE_URL');
+    expect(issues[0].description).not.toContain('REDIS_PORT');
+  });
+
+  it('treats a commented `# KEY=value` line in .env.example as documenting KEY', () => {
+    const issues = dockerIssuesFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      // DB_SSLMODE is documented as a commented example — the standard optional-var convention.
+      { path: '.env.example', content: 'PORT=3000\n# DB_SSLMODE=require\n' },
+      {
+        path: 'docker-compose.yml',
+        content: 'services:\n  a:\n    environment:\n      - DB_SSLMODE\n',
+      },
+    ]);
+    expect(issues).toHaveLength(0);
+  });
+
   it('does not flag common infra vars (TMPDIR) required by compose', () => {
     const issues = dockerIssuesFrom([
       { path: 'package.json', content: '{"name":"x"}' },

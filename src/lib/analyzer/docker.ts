@@ -75,8 +75,11 @@ function parseCompose(content: string): {
   const ports: PortMapping[] = [];
   const requiredEnvKeys = new Set<string>();
 
-  // `${VAR}` / `${VAR:-default}` interpolation references the host env.
-  for (const match of content.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-[^}]*)?\}/g)) {
+  // Only a bare `${VAR}` interpolation actually requires the host to supply VAR.
+  // Forms with a modifier — `${VAR:-x}`, `${VAR-x}` (default), `${VAR:+x}`
+  // (alternate), `${VAR:?x}` (error) — let compose resolve the value itself, so
+  // they are optional and must NOT be read as drift.
+  for (const match of content.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
     requiredEnvKeys.add(match[1]);
   }
 

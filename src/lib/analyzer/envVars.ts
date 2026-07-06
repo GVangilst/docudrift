@@ -59,16 +59,21 @@ export function extractEnvVarsFromExample(file: RepoFile): EnvVarOccurrence[] {
 
   file.content.split(/\r?\n/).forEach((line, index) => {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) return;
+    if (!trimmed) return;
 
-    const match = ENV_ASSIGNMENT_RE.exec(line);
+    // A commented-out `# KEY=value` line still documents that KEY exists — the
+    // standard way `.env.example` files show optional vars — so treat it as
+    // declared. Strip a leading comment marker before matching; prose comments
+    // (`# Database settings`) have no `KEY=` and are ignored.
+    const uncommented = trimmed.replace(/^#+\s*/, '');
+    const match = ENV_ASSIGNMENT_RE.exec(uncommented);
     if (!match) return;
 
     occurrences.push({
       name: match[1],
       file: file.path,
       line: index + 1,
-      snippet: redactEnvValues(trimmed),
+      snippet: redactEnvValues(uncommented),
     });
   });
 
