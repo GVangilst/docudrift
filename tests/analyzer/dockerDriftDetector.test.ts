@@ -60,4 +60,20 @@ describe('dockerDriftDetector', () => {
   it('does not treat a docker.com URL as a docker command', () => {
     expect(dockerIssues('docker-url-only')).toHaveLength(0);
   });
+
+  it('does not treat "Docker build" in prose as a docker build command', () => {
+    // nodebestpractices style: "Docker build will be very long and consume …".
+    const issues = analyzeRepository({
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x"}' },
+        {
+          path: 'README.md',
+          content: '# x\n\nNote: a Docker build will be very long and consume a lot of resources.\n',
+        },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    }).filter((i) => i.detectorId === 'docker-drift');
+    expect(issues).toHaveLength(0);
+  });
 });

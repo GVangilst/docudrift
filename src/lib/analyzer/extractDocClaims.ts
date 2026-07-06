@@ -324,7 +324,8 @@ function parseRunEnvKeys(command: string): string[] {
   return keys;
 }
 
-function extractDockerCommandClaims(line: string, source: DocClaimSource): DockerCommandClaim[] {
+function extractDockerCommandClaims(text: string, source: DocClaimSource): DockerCommandClaim[] {
+  const line = text;
   const claims: DockerCommandClaim[] = [];
   const seen = new Set<string>();
 
@@ -424,6 +425,7 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
     if (commandText !== null) {
       if (!awayFromRepoRoot) claims.push(...extractNpmScriptClaims(commandText, source));
       claims.push(...extractPackageCommandClaims(commandText, source));
+      claims.push(...extractDockerCommandClaims(commandText, source));
     }
     // File references only count in doc context — never inside fenced code blocks.
     if (!ctx.inFence && !ctx.isFenceMarker) {
@@ -431,7 +433,6 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
     }
     claims.push(...extractEnvVarClaims(line, source, ctx));
     claims.push(...extractNodeVersionClaims(line, source));
-    claims.push(...extractDockerCommandClaims(line, source));
   });
 
   return claims;
