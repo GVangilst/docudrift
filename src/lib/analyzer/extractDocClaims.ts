@@ -258,24 +258,46 @@ function extractDockerCommandClaims(line: string, source: DocClaimSource): Docke
   return claims;
 }
 
+const HEADING_RE = /^\s{0,3}#{1,6}\s/;
+// A `cd <dir>` used as a command (line start, prompt, or after &&/;/|), not prose.
+const CD_COMMAND_RE = /(?:^\s*|[$>&|;]\s*)cd\s+(\S+)/;
+
+/** Whether a `cd` target is the repo itself (so npm commands still apply to it). */
+function cdTargetIsRepo(target: string, repoName: string): boolean {
+  const cleaned = target.replace(/^['"]+|['"]+$/g, '');
+  const base = cleaned.split('/').filter(Boolean).pop() ?? cleaned;
+  return base.toLowerCase() === repoName.toLowerCase();
+}
+
 /**
  * Extracts the claims the README makes: npm scripts it says to run, file paths
  * it references, and env vars it documents. Detectors compare these against the
  * TruthModel.
+ *
+ * npm-script claims are only attributed to this repo's package.json while the
+ * documented shell context is at the repo root. A `cd` into another directory
+ * (e.g. a generated app under `/tmp/foo`) suppresses them until the next heading,
+ * so a "generate an app and run it" quick-start isn't read as drift.
  */
 export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
   const readme = findRootFileCaseInsensitive(snapshot, 'README.md');
   if (!readme) return [];
 
+  const repoName = snapshot.repo.name;
   const claims: DocClaim[] = [];
+  let awayFromRepoRoot = false;
 
   readme.content.split(/\r?\n/).forEach((line, index) => {
+    if (HEADING_RE.test(line)) awayFromRepoRoot = false;
+    const cd = CD_COMMAND_RE.exec(line);
+    if (cd) awayFromRepoRoot = !cdTargetIsRepo(cd[1], repoName);
+
     const source: DocClaimSource = {
       file: readme.path,
       line: index + 1,
       snippet: line.trim(),
     };
-    claims.push(...extractNpmScriptClaims(line, source));
+    if (!awayFromRepoRoot) claims.push(...extractNpmScriptClaims(line, source));
     claims.push(...extractFileReferenceClaims(line, source));
     claims.push(...extractEnvVarClaims(line, source));
     claims.push(...extractPackageCommandClaims(line, source));
