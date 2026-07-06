@@ -155,7 +155,15 @@ function extractEnvVarClaims(line: string, source: DocClaimSource): EnvVarClaim[
   };
 
   for (const match of line.matchAll(ENV_ASSIGNMENT_DOC_RE)) add(match[1], `${match[1]}=`);
-  for (const match of line.matchAll(ENV_SNAKE_RE)) add(match[1], match[1]);
+  for (const match of line.matchAll(ENV_SNAKE_RE)) {
+    // Skip SCREAMING_SNAKE tokens that are really part of a filename, e.g.
+    // `PRODUCT_SPEC.md` / `MVP_CHECKLIST.md` — a dot + extension immediately
+    // after the token. (A sentence-ending "SET FOO." has no letter after the
+    // dot, so real env vars in prose are unaffected.)
+    const after = line.slice((match.index ?? 0) + match[0].length);
+    if (/^\.[A-Za-z]/.test(after)) continue;
+    add(match[1], match[1]);
+  }
 
   return claims;
 }

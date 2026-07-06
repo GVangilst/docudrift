@@ -62,6 +62,28 @@ export function extractEnvVarsFromExample(file: RepoFile): EnvVarOccurrence[] {
   return occurrences;
 }
 
+// Generic example/placeholder names — almost always docs, not real config.
+const PLACEHOLDER_ENV_NAMES = new Set([
+  'FOO', 'BAR', 'BAZ', 'QUX', 'KEY', 'VALUE', 'VAR', 'NAME', 'EXAMPLE',
+  'PLACEHOLDER', 'MY_VAR', 'YOUR_VAR', 'SOME_VAR', 'MY_KEY', 'YOUR_KEY',
+]);
+
+/** Single-letter and well-known placeholder names aren't real env vars. */
+function isPlaceholderName(name: string): boolean {
+  return name.length === 1 || PLACEHOLDER_ENV_NAMES.has(name);
+}
+
+/**
+ * Best-effort check for whether a match sits inside a comment, so `process.env.X`
+ * shown in a JSDoc/`//` example isn't counted as a real read. Line-based (no full
+ * tokenizer): whole-line comments, JSDoc `*` continuations, and inline `//`.
+ */
+function isInsideComment(line: string, matchIndex: number): boolean {
+  if (/^\s*(\/\/|\/\*|\*|#|<!--)/.test(line)) return true;
+  const inlineComment = line.indexOf('//');
+  return inlineComment !== -1 && inlineComment < matchIndex && line[inlineComment - 1] !== ':';
+}
+
 /** Extracts env var names read from source code (process.env / import.meta.env). */
 export function extractEnvUsagesFromSource(file: RepoFile): EnvVarOccurrence[] {
   const occurrences: EnvVarOccurrence[] = [];
@@ -71,7 +93,8 @@ export function extractEnvUsagesFromSource(file: RepoFile): EnvVarOccurrence[] {
     for (const pattern of CODE_ENV_PATTERNS) {
       for (const match of line.matchAll(pattern)) {
         const name = match[1];
-        if (seenOnLine.has(name)) continue;
+        if (seenOnLine.has(name) || isPlaceholderName(name)) continue;
+        if (isInsideComment(line, match.index ?? 0)) continue;
         seenOnLine.add(name);
         occurrences.push({
           name,

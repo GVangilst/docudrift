@@ -62,4 +62,17 @@ describe('envVarDriftDetector', () => {
     expect(issues[0].severity).toBe('error');
     expect(issues[0].title).toContain('VITE_API_URL');
   });
+
+  it('does not treat SCREAMING_CASE filenames (PRODUCT_SPEC.md) as env vars', () => {
+    expect(envIssues('env-filename-not-var')).toHaveLength(0);
+  });
+
+  it('ignores env reads in comments and placeholder names, but keeps real ones', () => {
+    const issues = envIssues('env-comment-placeholder');
+    // process.env.FOO (comment) and process.env.X (placeholder) are ignored;
+    // only the real process.env.DATABASE_URL is flagged.
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('DATABASE_URL');
+    expect(issues.some((i) => /\bFOO\b|`X`/.test(i.title))).toBe(false);
+  });
 });
