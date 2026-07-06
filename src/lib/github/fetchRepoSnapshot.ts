@@ -58,6 +58,11 @@ export async function fetchRepoSnapshot(
     snapshot: {
       repo: { owner, name: repo },
       files: fetched.filter((file): file is RepoFile => file !== null),
+      // Full tree, so existence checks (dead links, lockfiles) see every file,
+      // not just the bounded set whose content we downloaded.
+      allPaths: tree.tree
+        .filter((entry) => entry.type === 'blob')
+        .map((entry) => entry.path),
     },
     defaultBranch: meta.default_branch,
     commitSha,

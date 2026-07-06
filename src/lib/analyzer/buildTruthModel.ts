@@ -7,7 +7,7 @@ import {
 } from './envVars';
 import { LOCKFILE_MANAGERS } from './keyFiles';
 import { collectNodeVersionRequirements } from './nodeVersions';
-import { getRootFile, listRootFilePaths } from './repoSnapshot';
+import { getRootFile } from './repoSnapshot';
 import type { EnvVarOccurrence, LockfileInfo, PackageManager, RepoSnapshot, TruthModel } from './types';
 
 /**
@@ -42,7 +42,10 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     }
   }
 
-  const rootFiles = listRootFilePaths(snapshot);
+  // Existence checks use the full tree when available; fixtures (no allPaths)
+  // fall back to the fetched files, which for them is every file.
+  const filePaths = snapshot.allPaths ?? snapshot.files.map((file) => file.path);
+  const rootFiles = filePaths.filter((path) => !path.includes('/'));
 
   const envVarsFromExamples: EnvVarOccurrence[] = [];
   const envVarsFromCode: EnvVarOccurrence[] = [];
@@ -72,7 +75,7 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     packageJson,
     hasRootServerJs: rootFiles.includes('server.js'),
     rootFiles,
-    filePaths: snapshot.files.map((file) => file.path),
+    filePaths,
     envVarsFromExamples,
     envVarsFromCode,
     lockfiles,

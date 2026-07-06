@@ -16,7 +16,14 @@ export type RepoSnapshot = {
     owner: string;
     name: string;
   };
+  /** Files whose content was fetched (a bounded "key files" set in production). */
   files: RepoFile[];
+  /**
+   * Every file path in the repo (the full tree), used for existence checks like
+   * dead-link and lockfile detection. When omitted, the paths of `files` are
+   * used — fixtures load every file, so the two coincide there.
+   */
+  allPaths?: string[];
 };
 
 /** One occurrence of an env var name found in the repo (example file or source). */

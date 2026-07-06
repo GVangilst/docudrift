@@ -35,6 +35,24 @@ describe('fetchRepoSnapshot', () => {
     expect(result.snapshot.files.find((f) => f.path === 'package.json')?.content).toContain('vite');
   });
 
+  it('captures the full tree in allPaths, including un-fetched files', async () => {
+    const routes = happyRoutes({
+      '/repos/o/r/git/trees/abc123': jsonResponse({
+        truncated: false,
+        tree: [
+          { path: 'package.json', type: 'blob', size: 60 },
+          { path: 'README.md', type: 'blob', size: 40 },
+          { path: 'docs/guide.md', type: 'blob', size: 20 },
+          { path: 'docs', type: 'tree' },
+        ],
+      }),
+    });
+    const result = await fetchRepoSnapshot('o', 'r', fakeFetch(routes));
+
+    // docs/guide.md is in the tree even though we only fetch key-file content.
+    expect(result.snapshot.allPaths).toEqual(['package.json', 'README.md', 'docs/guide.md']);
+  });
+
   it('flags a truncated tree', async () => {
     const routes = happyRoutes({
       '/repos/o/r/git/trees/abc123': jsonResponse({

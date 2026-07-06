@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeRepository } from '@/lib/analyzer/analyzeRepository';
+import type { RepoSnapshot } from '@/lib/analyzer/types';
 import { loadFixtureRepo } from '../helpers/loadFixtureRepo';
+
+function fileRefIssues(snapshot: RepoSnapshot) {
+  return analyzeRepository(snapshot).filter((i) => i.detectorId === 'file-reference-drift');
+}
 
 describe('fileReferenceDriftDetector', () => {
   it('flags a documented path that does not exist and suggests the closest match', () => {
@@ -40,5 +45,24 @@ describe('fileReferenceDriftDetector', () => {
     const issues = analyzeRepository(snapshot);
 
     expect(issues.filter((issue) => issue.detectorId === 'file-reference-drift')).toHaveLength(0);
+  });
+
+  it('checks references against the full tree (allPaths), not just fetched files', () => {
+    // docs/guide.md exists in the repo but its content was not fetched — it must
+    // still count as present via allPaths.
+    const withTree: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x"}' },
+        { path: 'README.md', content: 'See the [guide](docs/guide.md).' },
+      ],
+      allPaths: ['package.json', 'README.md', 'docs/guide.md'],
+    };
+    expect(fileRefIssues(withTree)).toHaveLength(0);
+
+    // Without the tree, the un-fetched file looks missing — proving allPaths is
+    // what fixes the false positive.
+    const withoutTree: RepoSnapshot = { repo: withTree.repo, files: withTree.files };
+    expect(fileRefIssues(withoutTree)).toHaveLength(1);
   });
 });
