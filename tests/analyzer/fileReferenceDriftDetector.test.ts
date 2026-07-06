@@ -34,4 +34,11 @@ describe('fileReferenceDriftDetector', () => {
 
     expect(issues.filter((issue) => issue.detectorId === 'file-reference-drift')).toHaveLength(0);
   });
+
+  it('does not treat technology names like Node.js / Vue.js as file paths', () => {
+    const snapshot = loadFixtureRepo('tech-name-not-file');
+    const issues = analyzeRepository(snapshot);
+
+    expect(issues.filter((issue) => issue.detectorId === 'file-reference-drift')).toHaveLength(0);
+  });
 });

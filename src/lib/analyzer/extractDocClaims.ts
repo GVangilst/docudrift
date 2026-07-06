@@ -124,15 +124,21 @@ function extractFileReferenceClaims(line: string, source: DocClaimSource): FileR
   const claims: FileReferenceClaim[] = [];
   const seen = new Set<string>();
 
-  const consider = (raw: string) => {
+  const consider = (raw: string, mustLookLikePath: boolean) => {
+    // A bare token from prose must contain a path separator to count as a file
+    // reference. This keeps technology names like "Node.js" / "Vue.js" (which
+    // end in a known extension but have no `/`) from being read as file paths.
+    if (mustLookLikePath && !raw.includes('/')) return;
     const path = normalizeFileRef(raw);
     if (!path || seen.has(path)) return;
     seen.add(path);
     claims.push({ kind: 'file-reference', rawText: raw.trim(), path, source });
   };
 
-  for (const match of line.matchAll(MARKDOWN_LINK_DEST_RE)) consider(match[1]);
-  for (const match of line.matchAll(PATH_TOKEN_RE)) consider(match[0]);
+  // Markdown link targets are explicit file intent — accept even without a `/`.
+  for (const match of line.matchAll(MARKDOWN_LINK_DEST_RE)) consider(match[1], false);
+  // Bare tokens scanned from prose must look path-like.
+  for (const match of line.matchAll(PATH_TOKEN_RE)) consider(match[0], true);
 
   return claims;
 }

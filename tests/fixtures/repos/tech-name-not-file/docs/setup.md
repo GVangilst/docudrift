@@ -1,0 +1,3 @@
+# Setup
+
+Install and run.
