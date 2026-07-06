@@ -139,4 +139,20 @@ describe('envVarDriftDetector', () => {
     ]);
     expect(issues.some((i) => /YYYYMMDD|UGRD|VGRD/.test(i.title))).toBe(false);
   });
+
+  it('ignores env reads in scripts/ but keeps real app source', () => {
+    // scripts/build.js reads SECRET_X (tooling); src/index.js reads REAL_APP_VAR.
+    const issues = envIssues('env-tooling-scripts');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('REAL_APP_VAR');
+    expect(issues.some((i) => /SECRET_X/.test(i.title))).toBe(false);
+  });
+
+  it('ignores env reads in build-config files (rollup.config.ts)', () => {
+    expect(envIssues('env-config-file')).toHaveLength(0);
+  });
+
+  it('ignores env reads in a *-test script (manual-security-test.cjs)', () => {
+    expect(envIssues('env-test-script')).toHaveLength(0);
+  });
 });

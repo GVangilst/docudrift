@@ -17,11 +17,12 @@ export const LOCKFILE_NAMES = new Set(LOCKFILE_MANAGERS.map((lock) => lock.file)
 /** Root files carrying a Node.js version requirement (parsed in nodeVersions.ts). */
 export const NODE_VERSION_FILES = new Set(['.nvmrc', '.node-version', '.tool-versions']);
 
-// A path segment that marks a test/fixture directory, or a `*.test.*`/`*.spec.*`
-// filename. Files under these aren't the app's real config surface, so the
-// source/env scanners skip them (e.g. fake repos under `tests/fixtures/`).
+// A path segment that marks a test/fixture directory, or a test-ish filename
+// (`*.test.*`, `*.spec.*`, or a `-test`/`_test`/`-spec`/`-e2e` suffix). Files
+// under these aren't the app's real config surface, so the source/env scanners
+// skip them (e.g. fake repos under `tests/fixtures/`, `manual-security-test.cjs`).
 const TEST_DIR_RE = /(^|\/)(tests?|__tests__|__mocks__|__fixtures__|fixtures|e2e|cypress)(\/|$)/i;
-const TEST_FILE_RE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
+const TEST_FILE_RE = /(\.|[-_])(test|spec|e2e)\.[cm]?[jt]sx?$/i;
 
 export function isTestPath(path: string): boolean {
   return TEST_DIR_RE.test(path) || TEST_FILE_RE.test(path);
@@ -33,4 +34,13 @@ const GENERATED_FILE_RE = /\.min\.[cm]?jsx?$/i;
 
 export function isGeneratedPath(path: string): boolean {
   return GENERATED_DIR_RE.test(path) || GENERATED_FILE_RE.test(path);
+}
+
+// Build tooling / scripts / config — reads env at build time, not app runtime
+// config a README documents. Excluded from the env source scan.
+const TOOLING_DIR_RE = /(^|\/)scripts\//i;
+const TOOLING_FILE_RE = /(^|\/)[^/]*\.config\.[cm]?[jt]s$/i;
+
+export function isToolingPath(path: string): boolean {
+  return TOOLING_DIR_RE.test(path) || TOOLING_FILE_RE.test(path);
 }
