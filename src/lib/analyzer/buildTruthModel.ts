@@ -5,7 +5,7 @@ import {
   isEnvExampleFile,
   isSourceFile,
 } from './envVars';
-import { LOCKFILE_MANAGERS, isGeneratedPath, isTestPath, isToolingPath } from './keyFiles';
+import { LOCKFILE_MANAGERS, isGeneratedPath, isTestPath } from './keyFiles';
 import { collectNodeVersionRequirements } from './nodeVersions';
 import { getRootFile } from './repoSnapshot';
 import type { EnvVarOccurrence, LockfileInfo, PackageManager, RepoSnapshot, TruthModel } from './types';
@@ -50,9 +50,11 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
   const envVarsFromExamples: EnvVarOccurrence[] = [];
   const envVarsFromCode: EnvVarOccurrence[] = [];
   for (const file of snapshot.files) {
-    // Skip test/fixture, build/vendored, and tooling/script/config files —
-    // none are the app's real runtime env config.
-    if (isTestPath(file.path) || isGeneratedPath(file.path) || isToolingPath(file.path)) continue;
+    // Skip test/fixture and build/vendored files. (Tooling/script/config reads
+    // are kept here so they still count as "usage" for the documented-but-unused
+    // and docker-compose checks; the high-severity "source reads X" rule filters
+    // them out itself — see envVarDriftDetector.)
+    if (isTestPath(file.path) || isGeneratedPath(file.path)) continue;
     if (isEnvExampleFile(file.path)) {
       envVarsFromExamples.push(...extractEnvVarsFromExample(file));
     } else if (isSourceFile(file.path)) {

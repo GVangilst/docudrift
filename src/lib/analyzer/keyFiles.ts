@@ -36,10 +36,16 @@ export function isGeneratedPath(path: string): boolean {
   return GENERATED_DIR_RE.test(path) || GENERATED_FILE_RE.test(path);
 }
 
-// Build tooling / scripts / config — reads env at build time, not app runtime
-// config a README documents. Excluded from the env source scan.
+// Build tooling / scripts — reads env at build time, not app runtime config a
+// README documents. Used to down-scope the "source reads X" env rule.
 const TOOLING_DIR_RE = /(^|\/)scripts\//i;
-const TOOLING_FILE_RE = /(^|\/)[^/]*\.config\.[cm]?[jt]s$/i;
+// Known bundler / build / test / lint tool config files, at any depth (monorepo
+// packages have their own). Deliberately an allowlist, NOT any `*.config.*`, so
+// application config modules like `src/app.config.ts` or `database.config.ts`
+// (which are real runtime config) are still scanned.
+const BUILD_TOOL_CONFIGS =
+  'rollup|rolldown|vite|vitest|webpack|rspack|esbuild|tsup|next|nuxt|svelte|astro|remix|metro|babel|jest|playwright|cypress|karma|tailwind|postcss|eslint|prettier|stylelint|commitlint|lint-staged';
+const TOOLING_FILE_RE = new RegExp(`(^|/)(?:${BUILD_TOOL_CONFIGS})\\.config\\.[cm]?[jt]s$`, 'i');
 
 export function isToolingPath(path: string): boolean {
   return TOOLING_DIR_RE.test(path) || TOOLING_FILE_RE.test(path);

@@ -1,4 +1,5 @@
 import { redactEnvValues } from '../envVars';
+import { isToolingPath } from '../keyFiles';
 import type {
   DocClaim,
   DriftIssue,
@@ -60,6 +61,10 @@ export function envVarDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
 
   const examples = firstByName(truth.envVarsFromExamples);
   const code = firstByName(truth.envVarsFromCode);
+  // App-runtime reads only — excludes build tooling / scripts / config. The
+  // high-severity "source reads X" rule uses this so a var read *only* in tooling
+  // isn't flagged; the full `code` set still counts as "usage" everywhere else.
+  const appCode = firstByName(truth.envVarsFromCode.filter((occ) => !isToolingPath(occ.file)));
 
   const docNames = new Set(documented.keys());
   const exampleNames = new Set(examples.keys());
@@ -93,8 +98,9 @@ export function envVarDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
     });
   }
 
-  // Rule B (high): read in source, but undocumented and not in any example.
-  for (const [name, occ] of code) {
+  // Rule B (high): read in app source, but undocumented and not in any example.
+  // Uses appCode so a var read only in build tooling / scripts isn't flagged.
+  for (const [name, occ] of appCode) {
     if (docNames.has(name) || exampleNames.has(name)) continue;
     if (isIgnored(name)) continue;
     issues.push({

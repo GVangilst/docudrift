@@ -152,6 +152,25 @@ describe('envVarDriftDetector', () => {
     expect(envIssues('env-config-file')).toHaveLength(0);
   });
 
+  it('still flags env reads in an application *.config.ts module (not build tooling)', () => {
+    // src/config/database.config.ts is real app config, not a bundler config.
+    const issues = envIssues('env-app-config');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('DATABASE_URL');
+    expect(issues[0].evidence[0].file).toBe('src/config/database.config.ts');
+  });
+
+  it('does not report "documented but unused" when the var is used in a script (Rule A)', () => {
+    // BUILD_TOKEN is documented AND read in scripts/release.js — it IS used, so
+    // Rule A must not fire (tooling reads still count as usage).
+    const issues = envFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x\n\nSet `BUILD_TOKEN` for releases.' },
+      { path: 'scripts/release.js', content: 'const t = process.env.BUILD_TOKEN;' },
+    ]);
+    expect(issues).toHaveLength(0);
+  });
+
   it('ignores env reads in a *-test script (manual-security-test.cjs)', () => {
     expect(envIssues('env-test-script')).toHaveLength(0);
   });
