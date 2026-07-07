@@ -1,10 +1,9 @@
 # DocuDrift — Architecture
 
-> **Status legend:** each section is tagged **Implemented**, **Partial**, or
-> **Planned** to reflect the current code. The MVP is mid-build: the analyzer
-> core runs against local fixture repos today; the GitHub fetch layer, API scan
-> routes, persistence, and frontend report view are not built yet. See
-> [MVP_CHECKLIST.md](./MVP_CHECKLIST.md) for phase-by-phase progress.
+> **Status:** built and working end-to-end — the GitHub fetch layer, the
+> `POST /api/scans` route, the analyzer + detector suite, and the React report UI
+> all run today. The tool is **stateless**: scans are not persisted (see
+> [MVP_CHECKLIST.md](./MVP_CHECKLIST.md)).
 
 ## Stack
 
@@ -14,27 +13,23 @@
   Express API + Vite SPA. API routes live at `src/app/api/**/route.ts`; the
   analyzer core lives under `src/lib/analyzer`.
 - **UI**: React 19 + Tailwind CSS.
-- **ORM/DB**: Prisma + PostgreSQL *(installed; schema is a placeholder, not yet
-  migrated — see "Database models")*.
-- **GitHub access**: unauthenticated GitHub REST API, public repos only
-  *(planned — not built)*.
-- **Testing**: Vitest, with on-disk fixture repos under `tests/fixtures/repos`.
-  React Testing Library + jsdom are installed but not yet used.
-- **Not yet added** (referenced by planned sections below): Zod (validation),
-  Supertest (API tests), `nock`/MSW (mocked GitHub HTTP).
+- **Persistence**: none — the tool is stateless (no DB, no ORM).
+- **GitHub access**: unauthenticated GitHub REST API, public repos only; an
+  optional server-side `GITHUB_TOKEN` raises the rate limit.
+- **Testing**: Vitest, with on-disk fixture repos under `tests/fixtures/repos`
+  and an injected/mocked `fetch` for GitHub HTTP (tests never hit real GitHub).
 
-Scans are intended to run **synchronously**: one HTTP request in, one full
-report out — no job queue, no worker, no polling. This is acceptable at MVP
-scale because the file set per repo is small and bounded and GitHub API latency
-dominates local compute.
+Scans run **synchronously**: one HTTP request in, one full report out — no job
+queue, no worker, no polling. This is fine at this scale because the file set per
+repo is small and bounded and GitHub API latency dominates local compute.
 
 ## High-level flow
 
-**Status: analyzer + health route Implemented; fetch/persist Planned**
+**Status: Implemented end-to-end**
 
-Today, the analyzer runs over a `RepoSnapshot` built from a local fixture
-directory. The dashed boxes below are the planned production path (GitHub fetch
-and persistence) that will feed the same analyzer.
+`POST /api/scans` builds a `RepoSnapshot` from the GitHub fetch layer and runs it
+through the same analyzer used by the fixture tests. Nothing is persisted; the
+report is returned in the response.
 
 ```
 ┌─────────────┐     POST /api/scans { repoUrl }      ┌────────────────────────┐
@@ -94,12 +89,9 @@ are the target design for the GitHub-backed path.
    defensive: a malformed `package.json` yields `packageJson: null` rather than
    throwing.
 8. **Detect** *(implemented)* — `analyzeRepository(snapshot)` runs each detector
-   and returns `DriftIssue[]`. (Per-detector error isolation and severity
-   ordering are planned — see "Detector engine".)
-9. **Persist** *(planned)* — write `Repo` (upsert), `Scan`, and finding rows in
-   one transaction.
-10. **Respond** *(planned)* — return the report JSON; the same shape backs
-    `GET /api/scans/:id`.
+   with per-detector error isolation and returns `DriftIssue[]`.
+9. **Respond** *(implemented)* — `buildReport()` orders findings by severity and
+   the route returns the report JSON. Nothing is persisted.
 
 ## Analyzer data model (in-memory)
 
@@ -210,90 +202,30 @@ type DriftIssue = {
 ```
 
 Note: the product spec's "medium" severity maps to `warning` in this model
-(`error`/`warning`/`info`). When findings are persisted, `scanId` will be added
-by the persistence layer rather than living on the in-memory `DriftIssue`.
+(`error`/`warning`/`info`).
 
 ## API routes
 
-**Status: `/api/health` Implemented; scan routes Planned**
+**Status: Implemented**
 
-| Method | Path | Status | Purpose |
-|--------|------|--------|---------|
-| `GET` | `/api/health` | **Implemented** | Liveness check, returns `{ status: "ok" }`. |
-| `POST` | `/api/scans` | Planned | Body `{ repoUrl }`. Runs the pipeline synchronously, persists, returns the report. |
-| `GET` | `/api/scans/:id` | Planned | Returns a stored report by scan ID. |
-| `GET` | `/api/scans` | Planned | Paginated recent-scans list. |
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/health` | Liveness check, returns `{ status: "ok" }`. |
+| `POST` | `/api/scans` | Body `{ repoUrl }`. Runs the pipeline synchronously and returns the report (nothing is stored). |
 
-Planned error responses use a consistent shape `{ error: { code, message } }`
-with codes like `INVALID_URL`, `REPO_NOT_FOUND`, `REPO_PRIVATE`, `NOT_JS_TS`,
-`RATE_LIMITED`, `REPO_TOO_LARGE`, `GITHUB_UPSTREAM_ERROR`.
+Error responses use a consistent shape `{ error: { code, message } }` with codes
+like `INVALID_URL`, `REPO_NOT_FOUND`, `REPO_PRIVATE`, `NOT_JS_TS`, `RATE_LIMITED`,
+`REPO_TOO_LARGE`, `TIMEOUT`, `GITHUB_UPSTREAM_ERROR`.
 
-## Database models (Prisma / Postgres)
+## Persistence
 
-**Status: Planned — schema is a placeholder, not migrated**
-
-`prisma/schema.prisma` currently contains only the `generator` and `datasource`
-blocks; the models below are the target design and have **not** been added or
-migrated yet. Nothing is persisted; the analyzer returns findings in-memory.
-
-```prisma
-model Repo {
-  id             String   @id @default(cuid())
-  owner          String
-  name           String
-  url            String
-  defaultBranch  String
-  lastScannedAt  DateTime?
-  scans          Scan[]
-
-  @@unique([owner, name])
-}
-
-model Scan {
-  id            String    @id @default(cuid())
-  repoId        String
-  repo          Repo      @relation(fields: [repoId], references: [id])
-  commitSha     String
-  status        ScanStatus @default(COMPLETED) // COMPLETED | FAILED (sync model — no PENDING at MVP)
-  errorCode     String?
-  errorMessage  String?
-  truncated     Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-  completedAt   DateTime?
-  findings      Finding[]
-}
-
-enum ScanStatus {
-  COMPLETED
-  FAILED
-}
-
-model Finding {
-  id            String   @id @default(cuid())
-  scanId        String
-  scan          Scan     @relation(fields: [scanId], references: [id])
-  detectorId    String
-  severity      Severity
-  title         String
-  description   String
-  evidence      Json     // DriftIssue['evidence'] shape, stored as JSON
-  suggestedFix  String
-}
-
-enum Severity {
-  ERROR
-  WARNING
-  INFO
-}
-```
-
-No `FetchedFile` table at MVP — raw fetched file contents are not persisted
-(only derived findings are), keeping storage small and side-stepping
-caching/staleness of third-party content.
+**None — the tool is stateless.** Reports are computed on each request and
+returned in the response; there is no database. Sharing/revisiting a report is
+done with a `?repo=` deep-link that prefills the input and auto-runs the scan.
 
 ## GitHub API constraints & handling
 
-**Status: Planned — no fetch layer built yet**
+**Status: Implemented**
 
 - Unauthenticated REST API is capped at 60 requests/hour per IP. A single scan
   will use ~3–8 requests. An optional server-side `GITHUB_TOKEN` env var (never
@@ -322,15 +254,16 @@ caching/staleness of third-party content.
 
 ## Frontend structure
 
-**Status: Partial — static landing stub only**
+**Status: Implemented**
 
-- Implemented: a landing page (`src/app/page.tsx`) with a single URL input. The
-  submit button is currently **disabled** — scanning is not wired up.
-- Planned: submit triggers `POST /api/scans` with a loading state; a report view
-  renders severity summary counts + a findings list, each finding expandable to
-  show evidence panes (file/line labels) and the suggested fix; a `/scans/:id`
-  route re-fetches a stored report for shareable links; a recent-scans history
-  view lists scans via `GET /api/scans`.
+- `src/app/page.tsx` renders `ScanApp` (`src/components/ScanApp.tsx`), a client
+  state machine (`idle | loading | success | error`).
+- Submit calls `POST /api/scans` and renders `ReportView` — a severity
+  `SummaryBar` plus a list of `FindingCard`s (title, description, evidence
+  file/line snippets, suggested fix), with an empty "no drift" state and typed
+  error rendering.
+- A `?repo=` query param prefills the input and auto-runs the scan on load, which
+  is how a scan is shared or revisited (there is no stored-report route).
 
 ## Test strategy
 

@@ -17,10 +17,9 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
 - [x] App layout: single Next.js app (App Router, `src/`, Tailwind, ESLint) —
       replaces the earlier `apps/api` + `apps/web` split
 - [x] TS config + API health route: `GET /api/health` (`src/app/api/health/route.ts`)
-- [~] Prisma installed; placeholder schema (generator + postgres datasource only).
-      `Repo`/`Scan`/`Finding` models NOT yet defined or migrated; no local Postgres
-      connection wired up
-- [x] Landing page stub (`src/app/page.tsx`)
+- [x] Persistence CUT — the tool is stateless (no DB/Prisma). Reports are
+      returned in the response; sharing/revisiting is via a `?repo=` deep-link
+- [x] Landing page (`src/app/page.tsx` → `ScanApp`)
 - [x] Vitest configured (`vitest.config.ts`, `npm test`) + `typecheck`/`lint` scripts.
       Analyzer/API tests run in node; component tests opt into jsdom + RTL via a
       `// @vitest-environment jsdom` docblock
@@ -108,13 +107,12 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
 
 ## Phase 4 — API
 
-> In-memory for now (no persistence yet): `POST /api/scans` fetches → analyzes →
-> returns the report in the response. `:id`/history are deferred with the DB.
+> Stateless: `POST /api/scans` fetches → analyzes → returns the report in the
+> response. No stored-report `:id` route or history list (persistence cut).
 
 - [x] `POST /api/scans` — orchestrates fetch → analyze → respond, wired to the
       real detector engine (`src/app/api/scans/route.ts`, `report.ts`)
-- [ ] `GET /api/scans/:id` — returns stored report (deferred: needs persistence)
-- [ ] `GET /api/scans` — paginated recent-scans list (deferred: needs persistence)
+- [x] `GET /api/scans/:id` / list routes — CUT (stateless, no persistence)
 - [x] Consistent error response shape `{ error: { code, message } }` across routes
 - [x] Wall-clock scan timeout enforced end-to-end (`SCAN_BUDGET_MS`, `TIMEOUT`)
 - [x] Tests: route-handler integration tests (GitHub layer mocked) covering the
@@ -133,9 +131,9 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started.
 - [x] Finding detail: expandable evidence (file/line + snippet), suggested fix
       with copy-to-clipboard (`FindingCard`)
 - [x] Empty state: "No drift detected"
-- [x] Shareable scan via `?repo=` deep-link (prefill + auto-run); `/scans/:id`
-      still deferred (needs persistence)
-- [ ] Recent scans list/history view (deferred: needs persistence)
+- [x] Shareable scan via `?repo=` deep-link (prefill + auto-run) — replaces a
+      stored `/scans/:id` route (persistence cut)
+- [x] Recent scans list/history view — CUT (stateless, no persistence)
 - [x] Markdown/snippet rendering sanitized: all report text rendered as escaped
       React children, no `dangerouslySetInnerHTML` (`renderInlineCode`)
 - [x] Tests: RTL tests for report rendering from fixture, filter/expand/copy,

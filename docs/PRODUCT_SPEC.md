@@ -33,7 +33,8 @@ only checks that are mechanically verifiable.
 - Deterministic, rule-based detectors only — every finding must be reproducible from
   static comparison of two artifacts, never inferred by a model
 - A single synchronous scan flow: submit URL → wait → view report
-- Scan history is stored, so a previous report can be revisited
+- **Stateless** — reports are not stored; a `?repo=` deep-link re-runs the scan,
+  which is how a report is shared or revisited
 
 **Out of scope (for MVP)**
 
@@ -68,7 +69,8 @@ only checks that are mechanically verifiable.
    - A list of findings, each expandable to show: title, plain-English description,
      side-by-side evidence snippets with file/line references, and a suggested fix
    - Empty state: "No drift detected" when the suite finds nothing
-5. User can revisit a past report via its scan URL (`/scans/:id`).
+5. User can re-run or share a scan via its `?repo=` deep-link (prefills the input
+   and auto-runs); there is no stored-report URL.
 
 ## Detector list (functional spec)
 
