@@ -163,6 +163,23 @@ describe('dockerDriftDetector — env drift', () => {
     expect(issues).toHaveLength(0);
   });
 
+  it('ignores compose ${VAR} interpolations that appear inside a # comment', () => {
+    const issues = dockerIssuesFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      { path: '.env.example', content: 'PORT=3000\n' },
+      {
+        path: 'docker-compose.yml',
+        // A and B only appear in a comment; REAL_VAR is the sole real required var.
+        content:
+          '# nested interpolation (${A:-${B}}) needs newer compose\nservices:\n  a:\n    environment:\n      REAL: ${REAL_VAR}\n',
+      },
+    ]);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('1 undocumented env var');
+    expect(issues[0].description).toContain('REAL_VAR');
+  });
+
   it('does not flag common infra vars (TMPDIR) required by compose', () => {
     const issues = dockerIssuesFrom([
       { path: 'package.json', content: '{"name":"x"}' },

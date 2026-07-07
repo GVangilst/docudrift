@@ -96,6 +96,34 @@ describe('fileReferenceDriftDetector', () => {
     expect(issues.some((i) => i.title.includes('my.config/setup.sh'))).toBe(true);
   });
 
+  it('matches a Next.js route-group path against the tree (parens stay intact)', () => {
+    // `app/(chat)/opengraph-image.png` really exists; the `(chat)` route group
+    // must not split the path into a bogus `/opengraph-image.png`.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'app' },
+      files: [
+        { path: 'package.json', content: '{"name":"app"}' },
+        { path: 'README.md', content: '# app\n\n<img alt="x" src="app/(chat)/opengraph-image.png">\n' },
+      ],
+      allPaths: ['package.json', 'README.md', 'app/(chat)/opengraph-image.png'],
+    };
+    expect(fileRefIssues(snapshot)).toHaveLength(0);
+  });
+
+  it('still flags a genuinely missing route-group path', () => {
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'app' },
+      files: [
+        { path: 'package.json', content: '{"name":"app"}' },
+        { path: 'README.md', content: '# app\n\nSee app/(marketing)/page.tsx for the landing page.\n' },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    const issues = fileRefIssues(snapshot);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('app/(marketing)/page.tsx');
+  });
+
   it('does not treat URL-encoded badge fragments as file paths', () => {
     // `%40scope/server.svg` inside a shields.io URL must not become `40scope/server.svg`.
     const issues = analyzeRepository(loadFixtureRepo('file-ref-badge-url')).filter(

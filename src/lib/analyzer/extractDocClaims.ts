@@ -96,8 +96,11 @@ const DOCKER_BUILD_FILE_RE = /-f\s+([-\w./]+)/;
 
 // Markdown link destination: the `dest` in `[text](dest)`.
 const MARKDOWN_LINK_DEST_RE = /\]\(\s*([^)\s]+)/g;
-// A run of characters that could plausibly form a path token.
-const PATH_TOKEN_RE = /[A-Za-z0-9_@./-]+/g;
+// A run of characters that could plausibly form a path token. Parentheses are
+// included so Next.js route-group segments (`app/(chat)/opengraph-image.png`)
+// stay whole; normalizeFileRef still strips parens that merely wrap the token
+// in prose (e.g. `(src/index.ts)`).
+const PATH_TOKEN_RE = /[A-Za-z0-9_@./()-]+/g;
 // A URL scheme prefix such as `http:`, `mailto:`, `ftp:`.
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 

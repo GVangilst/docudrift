@@ -93,7 +93,14 @@ function parseCompose(content: string): {
   // `${VAR:?msg}` / `${VAR?msg}` (compose fails if VAR is unset — the author is
   // explicitly demanding it). Default/alternate forms — `${VAR:-x}`, `${VAR-x}`,
   // `${VAR:+x}`, `${VAR+x}` — resolve without the host, so they are NOT drift.
-  for (const match of content.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?\?[^}]*)?\}/g)) {
+  // Strip `#` comments first (matching the line parser below) so a commented
+  // example like `#  nested interpolation (${A:-${B}}) needs ...` isn't read as
+  // a required var.
+  const uncommented = content
+    .split(/\r?\n/)
+    .map((line) => line.replace(/#.*$/, ''))
+    .join('\n');
+  for (const match of uncommented.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?\?[^}]*)?\}/g)) {
     requiredEnvKeys.add(match[1]);
   }
 
