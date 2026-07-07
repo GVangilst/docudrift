@@ -82,6 +82,11 @@ const NVM_RE = new RegExp(`\\bnvm\\s+(?:use|install)\\s+(${NODE_VERSION_EXPR})`,
 // boundary), e.g. "Node.js 16 and 18 are end-of-life". Such lines are skipped.
 const NODE_NEGATION_RE =
   /\b(end[-\s]?of[-\s]?life|eol|no longer support|not supported|unsupported|deprecat|drop(?:ped|ping)?\s+support|earlier than|older than|prior to|before node)\b/i;
+// A line describing when a Node FEATURE became available — not the repo's own
+// requirement — e.g. "fetch() … starting from Node.js v18", "async functions
+// (node v7.6+)", "added in Node 18". Such lines are skipped too.
+const NODE_FEATURE_MENTION_RE =
+  /\b(starting (?:from|with|in|at)|added in|introduced in|available(?:\s+\w+){0,2}\s+(?:in|since|from)|supported(?:\s+\w+){0,2}\s+(?:in|since|from)|built[-\s]?in|ships? with|comes? with|included (?:in|since)|powered by)\b/i;
 
 // Docker commands. Requiring a verb after `docker` keeps hostnames like
 // "docs.docker.com" (no space + verb) from matching.
@@ -274,9 +279,10 @@ function extractPackageCommandClaims(
 }
 
 function extractNodeVersionClaims(line: string, source: DocClaimSource): NodeVersionClaim[] {
-  // Lines that state a version is unsupported/EOL aren't requirement claims,
-  // e.g. "Node.js 16 and 18 are end-of-life, so we no longer support …".
-  if (NODE_NEGATION_RE.test(line)) return [];
+  // Lines that state a version is unsupported/EOL, or describe when a Node
+  // feature became available, aren't requirement claims — e.g. "Node.js 16 and
+  // 18 are end-of-life …" or "fetch() … starting from Node.js v18".
+  if (NODE_NEGATION_RE.test(line) || NODE_FEATURE_MENTION_RE.test(line)) return [];
 
   const claims: NodeVersionClaim[] = [];
   const seen = new Set<string>();
@@ -408,18 +414,25 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
       snippet: line.trim(),
     };
     // Commands (npm scripts + package-manager) only count in code contexts
-    // (shell block / inline code), never prose, headings, or tables.
+    // (shell block / inline code), never prose, headings, or tables. While we're
+    // `cd`'d into a generated/downstream project (e.g. `cd my-gatsby-site`), the
+    // commands and file paths describe that project, not this repo — so suppress
+    // npm-script, package-manager, and file-reference claims until the next heading.
     const commandTexts = commandContextTexts(line, ctx);
     if (commandTexts.length > 0) {
-      if (!awayFromRepoRoot) claims.push(...extractNpmScriptClaims(commandTexts, source));
-      claims.push(...extractPackageCommandClaims(commandTexts, source));
+      if (!awayFromRepoRoot) {
+        claims.push(...extractNpmScriptClaims(commandTexts, source));
+        claims.push(...extractPackageCommandClaims(commandTexts, source));
+      }
       claims.push(...extractDockerCommandClaims(commandTexts, source));
     }
     // File references only count in doc context — never inside fenced code blocks.
-    if (!ctx.inFence && !ctx.isFenceMarker) {
+    if (!ctx.inFence && !ctx.isFenceMarker && !awayFromRepoRoot) {
       claims.push(...extractFileReferenceClaims(line, source));
     }
-    claims.push(...extractNodeVersionClaims(line, source));
+    // Node version claims never come from a heading (a title/feature label, not a
+    // requirement) — mirrors how commands and env vars ignore headings.
+    if (!ctx.isHeading) claims.push(...extractNodeVersionClaims(line, source));
   });
 
   return claims;

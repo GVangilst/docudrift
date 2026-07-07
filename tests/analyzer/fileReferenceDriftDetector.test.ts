@@ -124,6 +124,23 @@ describe('fileReferenceDriftDetector', () => {
     expect(issues[0].title).toContain('app/(marketing)/page.tsx');
   });
 
+  it('does not flag a file path inside a scaffolded project (referenced after cd away)', () => {
+    // gatsby pattern: after `cd my-app`, `src/pages/index.js` is the generated
+    // site's file, not this repo's — suppressed until the next heading.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"r"}' },
+        {
+          path: 'README.md',
+          content: '# r\n\n```bash\ncd my-app\n```\n\nOpen your new site and edit `src/pages/index.js`.\n',
+        },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    expect(fileRefIssues(snapshot)).toHaveLength(0);
+  });
+
   it('does not treat URL-encoded badge fragments as file paths', () => {
     // `%40scope/server.svg` inside a shields.io URL must not become `40scope/server.svg`.
     const issues = analyzeRepository(loadFixtureRepo('file-ref-badge-url')).filter(

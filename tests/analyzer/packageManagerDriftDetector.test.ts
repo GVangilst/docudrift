@@ -120,6 +120,26 @@ describe('packageManagerDriftDetector', () => {
     expect(issues[0].title).toContain('npm');
   });
 
+  it('does not flag package-manager commands run inside a scaffolded project (cd away)', () => {
+    // gatsby/redwood pattern: `cd my-app` then `npm run develop` describes the
+    // generated project, not this repo (which uses yarn).
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x"}' },
+        { path: 'yarn.lock', content: '' },
+        {
+          path: 'README.md',
+          content: '# x\n\n```bash\nnpx create-foo my-app\ncd my-app\nnpm run develop\n```\n',
+        },
+      ],
+      allPaths: ['package.json', 'yarn.lock', 'README.md'],
+    };
+    expect(
+      analyzeRepository(snapshot).filter((i) => i.detectorId === 'package-manager-drift'),
+    ).toHaveLength(0);
+  });
+
   it('emits a low-severity ambiguity warning when multiple lockfiles exist', () => {
     const issues = pmIssues('pm-multiple-lockfiles');
     expect(issues).toHaveLength(1);

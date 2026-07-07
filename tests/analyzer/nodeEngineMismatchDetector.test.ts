@@ -87,6 +87,40 @@ describe('nodeEngineMismatchDetector', () => {
     expect(issues[0].title).toContain('disagree');
   });
 
+  it('ignores a Node version describing when a feature became available (undici)', () => {
+    // "fetch() … starting from Node.js v18" is Node history, not undici's requirement.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x","engines":{"node":">=22.19.0"}}' },
+        {
+          path: 'README.md',
+          content:
+            '# x\n\nNode.js includes a built-in `fetch()` implementation powered by undici starting from Node.js v18.\n\n`fetch()` is available globally in Node.js v18+.\n',
+        },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    expect(
+      analyzeRepository(snapshot).filter((i) => i.detectorId === 'node-engine-mismatch'),
+    ).toHaveLength(0);
+  });
+
+  it('ignores a Node version stated in a heading (koa: feature label, not a requirement)', () => {
+    // "### async functions (node v7.6+)" is a section title, not koa's requirement.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x","engines":{"node":">= 18"}}' },
+        { path: 'README.md', content: '# x\n\n### async functions (node v7.6+)\n\nWrite async handlers.\n' },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    expect(
+      analyzeRepository(snapshot).filter((i) => i.detectorId === 'node-engine-mismatch'),
+    ).toHaveLength(0);
+  });
+
   it('ignores Node versions stated as end-of-life / unsupported', () => {
     // Mirrors ts-fsrs: requirement is >=20; the "16 and 18" are called EOL.
     const snapshot: RepoSnapshot = {
