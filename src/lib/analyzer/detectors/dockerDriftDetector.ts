@@ -64,7 +64,7 @@ export function dockerDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
     };
 
     if (claim.command === 'compose') {
-      if (docker.hasComposeFile) continue;
+      if (docker.hasComposeFileInTree) continue;
       push(`compose`, {
         id: `${DETECTOR_ID}:compose-missing`,
         detectorId: DETECTOR_ID,
@@ -105,7 +105,7 @@ export function dockerDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
     }
 
     if (claim.command === 'build') {
-      if (docker.hasDockerfile) continue;
+      if (docker.hasDockerfileInTree) continue;
       push(`build`, {
         id: `${DETECTOR_ID}:dockerfile-missing`,
         detectorId: DETECTOR_ID,

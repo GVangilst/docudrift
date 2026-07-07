@@ -30,6 +30,15 @@ export function isComposeFile(path: string): boolean {
   return COMPOSE_FILES.has(basename(path).toLowerCase()) && isDeploymentDocker(path);
 }
 
+// Basename-only matches (no tooling/deployment filter) for the existence checks:
+// "the README documents docker, does ANY such file exist in the repo?"
+function isComposeBasename(path: string): boolean {
+  return COMPOSE_FILES.has(basename(path).toLowerCase());
+}
+function isDockerfileBasename(path: string): boolean {
+  return DOCKERFILE_RE.test(basename(path));
+}
+
 /**
  * Parses a `host:container`, `ip:host:container`, or bare `container` port spec
  * (quotes and `/tcp` suffix tolerated). The last numeric segment is the
@@ -168,11 +177,15 @@ export function collectDockerInfo(snapshot: RepoSnapshot): DockerInfo {
     }
   }
 
+  const allPaths = snapshot.allPaths ?? snapshot.files.map((f) => f.path);
+
   return {
     hasDockerfile: dockerfilePaths.length > 0,
     dockerfilePaths,
     hasComposeFile: composeFilePaths.length > 0,
     composeFilePaths,
+    hasDockerfileInTree: allPaths.some(isDockerfileBasename),
+    hasComposeFileInTree: allPaths.some(isComposeBasename),
     exposedPorts,
     composePorts,
     composeRequiredEnv,

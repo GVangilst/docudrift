@@ -49,6 +49,43 @@ describe('packageManagerDriftDetector', () => {
     expect(pmIssues('pm-alternatives')).toHaveLength(0);
   });
 
+  it('does not flag npm/yarn when the README also documents pnpm (matching the lockfile)', () => {
+    // "install with your package manager of choice" listing each on its own line,
+    // next to a pnpm-lock.yaml — pnpm IS documented, so the rest are alternatives.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x"}' },
+        { path: 'pnpm-lock.yaml', content: '' },
+        {
+          path: 'README.md',
+          content: '# x\n\nInstall with your package manager of choice:\n\n```bash\nnpm i\nyarn\npnpm i\n```\n',
+        },
+      ],
+      allPaths: ['package.json', 'pnpm-lock.yaml', 'README.md'],
+    };
+    expect(
+      analyzeRepository(snapshot).filter((i) => i.detectorId === 'package-manager-drift'),
+    ).toHaveLength(0);
+  });
+
+  it('still flags npm-only setup docs against a pnpm-lock.yaml (correct manager absent)', () => {
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x"}' },
+        { path: 'pnpm-lock.yaml', content: '' },
+        { path: 'README.md', content: '# x\n\n```bash\nnpm install\n```\n' },
+      ],
+      allPaths: ['package.json', 'pnpm-lock.yaml', 'README.md'],
+    };
+    const issues = analyzeRepository(snapshot).filter(
+      (i) => i.detectorId === 'package-manager-drift',
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('npm');
+  });
+
   it('emits a low-severity ambiguity warning when multiple lockfiles exist', () => {
     const issues = pmIssues('pm-multiple-lockfiles');
     expect(issues).toHaveLength(1);

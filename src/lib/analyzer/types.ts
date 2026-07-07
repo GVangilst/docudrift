@@ -71,6 +71,15 @@ export type DockerInfo = {
   dockerfilePaths: string[];
   hasComposeFile: boolean;
   composeFilePaths: string[];
+  /**
+   * Whether ANY Dockerfile/compose file exists anywhere in the repo tree,
+   * including tooling/example paths. Used only for the "README documents docker
+   * but no such file exists" existence checks — a README that says
+   * `cd dockers/examples/standalone && docker-compose up` is satisfied by a
+   * compose file there, even though that path is excluded from port/env drift.
+   */
+  hasDockerfileInTree: boolean;
+  hasComposeFileInTree: boolean;
   /** Container ports declared via Dockerfile `EXPOSE`. */
   exposedPorts: number[];
   /** Port mappings declared in compose `ports:` blocks. */

@@ -80,6 +80,13 @@ export function packageManagerDriftDetector(
 
   const authoritative = [...managers][0];
   const authoritativeLockfile = lockfiles[0].file;
+
+  // If the README documents the authoritative manager itself (e.g. "install with
+  // your package manager of choice: npm / yarn / pnpm i" next to a pnpm lock), it
+  // already gives users a correct path — the other managers are offered
+  // alternatives, not drift. Only flag when the correct manager is absent.
+  if (commandClaims.some((claim) => claim.packageManager === authoritative)) return [];
+
   const issues: DriftIssue[] = [];
 
   for (const [manager, claim] of committed) {
