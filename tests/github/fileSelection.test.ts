@@ -7,7 +7,6 @@ describe('selectKeyFiles', () => {
       { path: 'package.json', type: 'blob', size: 20 },
       { path: 'README.md', type: 'blob', size: 40 },
       { path: 'pnpm-lock.yaml', type: 'blob', size: 500 },
-      { path: '.env.example', type: 'blob', size: 10 },
       { path: 'docker-compose.yml', type: 'blob', size: 60 },
       { path: 'Dockerfile', type: 'blob', size: 60 },
       { path: 'src/index.ts', type: 'blob', size: 100 }, // arbitrary source — not needed
@@ -16,7 +15,7 @@ describe('selectKeyFiles', () => {
     ]);
 
     expect(selected.sort()).toEqual(
-      ['.env.example', 'Dockerfile', 'README.md', 'docker-compose.yml', 'package.json', 'pnpm-lock.yaml'].sort(),
+      ['Dockerfile', 'README.md', 'docker-compose.yml', 'package.json', 'pnpm-lock.yaml'].sort(),
     );
     // Arbitrary source content is never fetched (no detector reads it).
     expect(selected).not.toContain('src/index.ts');

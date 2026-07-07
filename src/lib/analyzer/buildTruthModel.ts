@@ -1,9 +1,8 @@
 import { collectDockerInfo } from './docker';
-import { extractEnvVarsFromExample, isEnvExampleFile } from './envVars';
 import { LOCKFILE_MANAGERS } from './keyFiles';
 import { collectNodeVersionRequirements } from './nodeVersions';
 import { getRootFile } from './repoSnapshot';
-import type { EnvVarOccurrence, LockfileInfo, PackageManager, RepoSnapshot, TruthModel } from './types';
+import type { LockfileInfo, PackageManager, RepoSnapshot, TruthModel } from './types';
 
 /**
  * Derives ground-truth facts about the repo from its actual files.
@@ -42,17 +41,6 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
   const filePaths = snapshot.allPaths ?? snapshot.files.map((file) => file.path);
   const rootFiles = filePaths.filter((path) => !path.includes('/'));
 
-  // Env vars declared in `.env.example` files — the repo's structured, declared
-  // config surface. (We intentionally do NOT scan arbitrary source for
-  // `process.env.X`: deciding which files are "the app" is an unbounded
-  // directory-classification problem, so that check was removed.)
-  const envVarsFromExamples: EnvVarOccurrence[] = [];
-  for (const file of snapshot.files) {
-    if (isEnvExampleFile(file.path)) {
-      envVarsFromExamples.push(...extractEnvVarsFromExample(file));
-    }
-  }
-
   const lockfiles: LockfileInfo[] = LOCKFILE_MANAGERS.filter(({ file }) =>
     rootFiles.includes(file),
   ).map(({ file, manager }) => ({ file, manager }));
@@ -72,7 +60,6 @@ export function buildTruthModel(snapshot: RepoSnapshot): TruthModel {
     hasRootServerJs: rootFiles.includes('server.js'),
     rootFiles,
     filePaths,
-    envVarsFromExamples,
     lockfiles,
     packageManager,
     nodeVersionRequirements,

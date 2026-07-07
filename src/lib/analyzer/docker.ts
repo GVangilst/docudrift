@@ -77,37 +77,11 @@ function parseExposedPorts(content: string): number[] {
  * needs from the host. Not a full YAML parser — it tracks `ports:` and
  * `environment:` blocks by indentation, which covers standard compose files.
  */
-function parseCompose(content: string): {
-  ports: PortMapping[];
-  requiredEnvKeys: string[];
-} {
+function parseCompose(content: string): { ports: PortMapping[] } {
   const ports: PortMapping[] = [];
-  const requiredEnvKeys = new Set<string>();
-  // Keys given a literal value inline anywhere in the file (e.g. a db service's
-  // `POSTGRES_USER=documenso`). Such a key isn't really "required from the host"
-  // even if another service interpolates `${POSTGRES_USER}`, so it's suppressed.
-  const inlineSetKeys = new Set<string>();
-  const isLiteralValue = (value: string) => value.trim() !== '' && !value.includes('${');
-
-  // A host-required interpolation is either bare `${VAR}` or the error form
-  // `${VAR:?msg}` / `${VAR?msg}` (compose fails if VAR is unset — the author is
-  // explicitly demanding it). Default/alternate forms — `${VAR:-x}`, `${VAR-x}`,
-  // `${VAR:+x}`, `${VAR+x}` — resolve without the host, so they are NOT drift.
-  // Strip `#` comments first (matching the line parser below) so a commented
-  // example like `#  nested interpolation (${A:-${B}}) needs ...` isn't read as
-  // a required var.
-  const uncommented = content
-    .split(/\r?\n/)
-    .map((line) => line.replace(/#.*$/, ''))
-    .join('\n');
-  for (const match of uncommented.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?\?[^}]*)?\}/g)) {
-    requiredEnvKeys.add(match[1]);
-  }
 
   let inPorts = false;
   let portsIndent = 0;
-  let inEnv = false;
-  let envIndent = 0;
 
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.replace(/#.*$/, '');
@@ -115,20 +89,11 @@ function parseCompose(content: string): {
     const indent = line.length - line.trimStart().length;
 
     if (inPorts && indent <= portsIndent) inPorts = false;
-    if (inEnv && indent <= envIndent) inEnv = false;
 
     const portsHeader = /^(\s*)ports:\s*$/.exec(line);
     if (portsHeader) {
       inPorts = true;
       portsIndent = portsHeader[1].length;
-      inEnv = false;
-      continue;
-    }
-    const envHeader = /^(\s*)environment:\s*$/.exec(line);
-    if (envHeader) {
-      inEnv = true;
-      envIndent = envHeader[1].length;
-      inPorts = false;
       continue;
     }
 
@@ -138,30 +103,10 @@ function parseCompose(content: string): {
         const mapping = parsePortMapping(item[1]);
         if (mapping) ports.push(mapping);
       }
-      continue;
-    }
-
-    if (inEnv) {
-      // List form: `- KEY` (required from host) or `- KEY=value` (set inline).
-      const listItem = /^\s*-\s*([A-Za-z_][A-Za-z0-9_]*)(=?)(.*)$/.exec(line);
-      if (listItem) {
-        if (listItem[2] !== '=') requiredEnvKeys.add(listItem[1]);
-        else if (isLiteralValue(listItem[3])) inlineSetKeys.add(listItem[1]);
-        continue;
-      }
-      // Map form: `KEY:` (empty → required) or `KEY: value` (set inline).
-      const mapItem = /^\s*([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/.exec(line);
-      if (mapItem) {
-        if (mapItem[2].trim() === '') requiredEnvKeys.add(mapItem[1]);
-        else if (isLiteralValue(mapItem[2])) inlineSetKeys.add(mapItem[1]);
-      }
     }
   }
 
-  // A key set to a literal value inline is documented by the compose file itself.
-  for (const key of inlineSetKeys) requiredEnvKeys.delete(key);
-
-  return { ports, requiredEnvKeys: [...requiredEnvKeys] };
+  return { ports };
 }
 
 /** Collects Docker/compose file evidence and parsed port/env config from the repo. */
@@ -170,7 +115,6 @@ export function collectDockerInfo(snapshot: RepoSnapshot): DockerInfo {
   const composeFilePaths: string[] = [];
   const exposedPorts: number[] = [];
   const composePorts: PortMapping[] = [];
-  const composeRequiredEnv: { file: string; keys: string[] }[] = [];
 
   for (const file of snapshot.files) {
     if (isDockerfile(file.path)) {
@@ -178,9 +122,7 @@ export function collectDockerInfo(snapshot: RepoSnapshot): DockerInfo {
       exposedPorts.push(...parseExposedPorts(file.content));
     } else if (isComposeFile(file.path)) {
       composeFilePaths.push(file.path);
-      const parsed = parseCompose(file.content);
-      composePorts.push(...parsed.ports);
-      composeRequiredEnv.push({ file: file.path, keys: parsed.requiredEnvKeys });
+      composePorts.push(...parseCompose(file.content).ports);
     }
   }
 
@@ -195,6 +137,5 @@ export function collectDockerInfo(snapshot: RepoSnapshot): DockerInfo {
     hasComposeFileInTree: allPaths.some(isComposeBasename),
     exposedPorts,
     composePorts,
-    composeRequiredEnv,
   };
 }

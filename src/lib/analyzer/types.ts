@@ -26,16 +26,6 @@ export type RepoSnapshot = {
   allPaths?: string[];
 };
 
-/** One occurrence of an env var name found in the repo (example file or source). */
-export type EnvVarOccurrence = {
-  /** The variable name only — values are never captured. */
-  name: string;
-  file: string;
-  line: number;
-  /** The source line, with any `KEY=value` value redacted. */
-  snippet: string;
-};
-
 /** A JavaScript package manager DocuDrift understands. */
 export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun';
 
@@ -84,8 +74,6 @@ export type DockerInfo = {
   exposedPorts: number[];
   /** Port mappings declared in compose `ports:` blocks. */
   composePorts: PortMapping[];
-  /** Per compose file, the env keys it needs from the host (bare `- KEY` / `${KEY}`). */
-  composeRequiredEnv: { file: string; keys: string[] }[];
 };
 
 /**
@@ -104,8 +92,6 @@ export type TruthModel = {
   rootFiles: string[];
   /** Every file path in the repo, root-relative and posix-style. */
   filePaths: string[];
-  /** Env var names declared in `.env.example`/`.sample`/`.template` files. */
-  envVarsFromExamples: EnvVarOccurrence[];
   /** Lockfiles present at the repo root. */
   lockfiles: LockfileInfo[];
   /** Inferred package manager — set only when exactly one manager's lockfile exists. */
@@ -120,7 +106,6 @@ export type TruthModel = {
 export type DocClaimKind =
   | 'npm-script'
   | 'file-reference'
-  | 'env-var'
   | 'command'
   | 'node-version'
   | 'docker-command';
@@ -149,16 +134,6 @@ export type FileReferenceClaim = {
   rawText: string;
   /** The normalized, repo-relative path the reference points to. */
   path: string;
-  source: DocClaimSource;
-};
-
-/** A claim that documents an environment variable, e.g. "set `DATABASE_URL`". */
-export type EnvVarClaim = {
-  kind: 'env-var';
-  /** The variable name only — values are never captured. */
-  name: string;
-  /** The reference as written, e.g. "DATABASE_URL" or "DATABASE_URL=". */
-  rawText: string;
   source: DocClaimSource;
 };
 
@@ -207,7 +182,6 @@ export type DockerCommandClaim = {
 export type DocClaim =
   | NpmScriptClaim
   | FileReferenceClaim
-  | EnvVarClaim
   | PackageCommandClaim
   | NodeVersionClaim
   | DockerCommandClaim;

@@ -1,5 +1,4 @@
 import { isDockerfile, isComposeFile } from '../analyzer/docker';
-import { isEnvExampleFile } from '../analyzer/envVars';
 import { LOCKFILE_NAMES, NODE_VERSION_FILES } from '../analyzer/keyFiles';
 
 /** A blob/tree entry from GitHub's recursive git-tree response. */
@@ -25,7 +24,7 @@ function isKeyFile(path: string): boolean {
     if (base === 'package.json') return true;
     if (LOCKFILE_NAMES.has(base) || NODE_VERSION_FILES.has(base)) return true;
   }
-  return isEnvExampleFile(path) || isDockerfile(path) || isComposeFile(path);
+  return isDockerfile(path) || isComposeFile(path);
 }
 
 /**

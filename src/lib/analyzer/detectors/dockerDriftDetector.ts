@@ -1,9 +1,7 @@
-import { isCommonEnv } from '../envVars';
 import type {
   DockerCommandClaim,
   DocClaim,
   DriftIssue,
-  EnvVarClaim,
   TruthModel,
 } from '../types';
 
@@ -137,34 +135,6 @@ export function dockerDriftDetector(claims: DocClaim[], truth: TruthModel): Drif
           suggestedFix: `Map one of the exposed ports (${exposedList}), or update the Dockerfile \`EXPOSE\`/compose \`ports\` to include ${mapping.container}.`,
         });
       }
-    }
-  }
-
-  // Env drift: env vars a compose file needs from the host that aren't documented.
-  // Gated on the repo actually using a `.env.example` (so a missing var is real
-  // drift, not just a repo that doesn't use the convention), and aggregated into
-  // ONE finding per compose file instead of a wall of per-var warnings.
-  if (truth.envVarsFromExamples.length > 0) {
-    const documented = new Set(
-      claims.filter((claim): claim is EnvVarClaim => claim.kind === 'env-var').map((c) => c.name),
-    );
-    const inExample = new Set(truth.envVarsFromExamples.map((occ) => occ.name));
-
-    for (const { file, keys } of docker.composeRequiredEnv) {
-      const missing = keys.filter(
-        (key) => !documented.has(key) && !inExample.has(key) && !isCommonEnv(key),
-      );
-      if (missing.length === 0) continue;
-      const list = missing.join(', ');
-      push(`compose-env:${file}`, {
-        id: `${DETECTOR_ID}:compose-env:${file}`,
-        detectorId: DETECTOR_ID,
-        severity: 'warning',
-        title: `${file} requires ${missing.length} undocumented env var${missing.length === 1 ? '' : 's'}`,
-        description: `\`${file}\` needs these env vars from the host, but they are not in the README or any .env example file: ${list}.`,
-        evidence: [{ label: file, file, line: 1, snippet: list }],
-        suggestedFix: `Add the missing vars to .env.example (and document them): ${list}.`,
-      });
     }
   }
 

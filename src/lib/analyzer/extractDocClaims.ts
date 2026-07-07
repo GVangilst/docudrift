@@ -5,7 +5,6 @@ import type {
   DockerCommandKind,
   DocClaim,
   DocClaimSource,
-  EnvVarClaim,
   FileReferenceClaim,
   NodeVersionClaim,
   NpmScriptClaim,
@@ -25,16 +24,6 @@ const PLACEHOLDER_SCRIPTS = new Set([
   'myscript', 'my-script', 'yourscript', 'your-script', 'somescript', 'some-script',
   'scriptname', 'script-name', 'mycommand', 'my-command', 'yourcommand', 'your-command',
 ]);
-
-// An uppercase `KEY=` assignment, e.g. `DATABASE_URL=...` in an env block. The
-// lookbehind stops matching a fragment of a larger token (e.g. `UGRD` inside a
-// URL query `var_UGRD=on`); the lookahead avoids JS comparisons like `X===y`.
-const ENV_ASSIGNMENT_DOC_RE = /(?<![\w@$])([A-Z][A-Z0-9_]*)=(?!=)/g;
-// A SCREAMING_SNAKE_CASE token in prose, e.g. "set DATABASE_URL in .env".
-// Requiring an underscore keeps single-word acronyms (API, URL, MIT) out.
-const ENV_SNAKE_RE = /\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g;
-// Date/time format placeholders (e.g. YYYYMMDD, HHMMSS) — not env vars.
-const DATE_FORMAT_RE = /^[YMDHS]{3,}$/;
 
 // Package-manager invocations: `<manager> <subcommand> [args...]`. Longer
 // subcommands are listed before their prefixes so alternation matches greedily.
@@ -262,53 +251,6 @@ function extractFileReferenceClaims(line: string, source: DocClaimSource): FileR
   return claims;
 }
 
-// Placeholder tokens in docs are not real env vars: `YOUR_*`/`MY_*` fill-ins, or
-// a token wrapped in `[...]` / `<...>` (e.g. `[YOUR_RESPONSIBILITY_1]`).
-const PLACEHOLDER_ENV_PREFIX = /^(YOUR|MY|SOME|EXAMPLE|SAMPLE|PLACEHOLDER|CHANGE|CHANGEME)_/i;
-
-function isPlaceholderEnv(name: string, line: string, index: number): boolean {
-  if (PLACEHOLDER_ENV_PREFIX.test(name)) return true;
-  const before = line[index - 1];
-  return before === '[' || before === '<';
-}
-
-function extractEnvVarClaims(
-  line: string,
-  source: DocClaimSource,
-  ctx: LineContext,
-): EnvVarClaim[] {
-  // A heading is a title (e.g. `##### CLIENT_FETCH_ERROR`), not env documentation.
-  if (ctx.isHeading) return [];
-
-  const claims: EnvVarClaim[] = [];
-  const seen = new Set<string>();
-
-  const add = (name: string, rawText: string) => {
-    if (name.length < 2 || seen.has(name)) return;
-    seen.add(name);
-    // rawText intentionally never includes an assignment's value.
-    claims.push({ kind: 'env-var', name, rawText, source });
-  };
-
-  for (const match of line.matchAll(ENV_ASSIGNMENT_DOC_RE)) {
-    if (DATE_FORMAT_RE.test(match[1])) continue; // e.g. YYYYMMDD=<date>
-    if (isPlaceholderEnv(match[1], line, match.index ?? 0)) continue;
-    add(match[1], `${match[1]}=`);
-  }
-  for (const match of line.matchAll(ENV_SNAKE_RE)) {
-    // Skip SCREAMING_SNAKE tokens that are really part of a filename, e.g.
-    // `PRODUCT_SPEC.md` / `MVP_CHECKLIST.md` — a dot + extension immediately
-    // after the token. (A sentence-ending "SET FOO." has no letter after the
-    // dot, so real env vars in prose are unaffected.)
-    const after = line.slice((match.index ?? 0) + match[0].length);
-    if (/^\.[A-Za-z]/.test(after)) continue;
-    if (isPlaceholderEnv(match[1], line, match.index ?? 0)) continue;
-    add(match[1], match[1]);
-  }
-
-  return claims;
-}
-
 function extractPackageCommandClaims(
   texts: string[],
   source: DocClaimSource,
@@ -477,7 +419,6 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
     if (!ctx.inFence && !ctx.isFenceMarker) {
       claims.push(...extractFileReferenceClaims(line, source));
     }
-    claims.push(...extractEnvVarClaims(line, source, ctx));
     claims.push(...extractNodeVersionClaims(line, source));
   });
 

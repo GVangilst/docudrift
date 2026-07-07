@@ -174,16 +174,17 @@ presence, `process.env.X` source usages, `defaultBranch`/`commitSha`, and a
   - `file-reference-drift` (dead-links) — README path references vs the file tree,
     with a fuzzy closest-path suggestion.
   - `docker-drift` — README `docker build`/`compose`/`run` vs Dockerfile/compose
-    presence, `EXPOSE`/compose ports, and compose-required env vars missing from a
-    `.env.example` (aggregated into one `warning` per compose file). Compose files
-    under tooling dirs (`.github/`, `.devcontainer/`, `scripts/`, …) are excluded.
-- **Removed:** `env-var-drift`. Flagging "the app reads an undocumented
-  `process.env.X`" required scanning arbitrary source and classifying every
-  directory as app-vs-tooling — an unbounded problem (a directory denylist over an
-  open vocabulary), so it produced open-ended false positives. Consequently the
-  analyzer **no longer fetches arbitrary source files** — `selectKeyFiles` fetches
-  only README, `package.json`, lockfiles, node-version files, `.env.example`s, and
-  Docker/compose files.
+    **file existence** (documents `docker-compose up`/`docker build` but no such
+    file exists anywhere in the tree) and **container port drift** (README `-p`
+    vs `EXPOSE`/compose `ports`). Purely structural.
+- **Removed:** `env-var-drift` and the `docker-drift` **compose-env check**
+  ("compose requires a host env var missing from `.env.example`"). Both rest on
+  the same unrecoverable questions — *which files/compose are "the app"* (a
+  directory denylist over an open vocabulary: `.do/`, `metrics/otel/`,
+  `examples/`, …) and *is this var "documented"* — so they produced open-ended
+  false positives. Consequently the analyzer **no longer fetches arbitrary source
+  or `.env.example` files** — `selectKeyFiles` fetches only README,
+  `package.json`, lockfiles, node-version files, and Docker/compose files.
 
 The finding shape is `DriftIssue` (the doc previously called this `Finding`):
 

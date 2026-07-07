@@ -79,9 +79,9 @@ Each detector below states what it compares, why it matters, and an example.
 | 1 | Missing/undocumented scripts | Commands referenced in README code blocks (`npm run X`, `yarn X`, `pnpm X`) vs. `package.json` `scripts` keys | A documented command that doesn't exist is an instant dead end for a new user | README says `npm run start:dev`; no such script in `package.json` |
 | 2 | Package manager mismatch | Install command shown in README (`npm install` / `yarn` / `pnpm install`) vs. which lockfile(s) actually exist | Following the "wrong" package manager's instructions can produce a broken or inconsistent install | README says `npm install`; repo only has `pnpm-lock.yaml` |
 | 3 | Multiple conflicting lockfiles | Presence of more than one of `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` | Ambiguous which manager is authoritative regardless of what docs say | Repo has both `package-lock.json` and `yarn.lock` |
-| 4 | ~~Env var drift~~ **(removed)** | Formerly compared `process.env.X` source reads against the README/`.env.example` | Determining which files are "the app" (vs. tooling/tests/scripts) is an unbounded directory-classification problem, so this produced open-ended false positives | *Cut — see "Confidence tiers & limitations". Docker compose-env drift (detector 6) covers the reliable, structured slice.* |
+| 4 | ~~Env var drift~~ **(removed)** | Formerly compared `process.env.X` source reads against the README/`.env.example` | Determining which files are "the app" (vs. tooling/tests/scripts) is an unbounded directory-classification problem, so this produced open-ended false positives | *Cut — see "Confidence tiers & limitations".* |
 | 5 | Node engine mismatch | `engines.node` in `package.json` vs. a stated Node version in README (e.g. "Requires Node 18+") | Wrong stated version leads to confusing runtime errors on install | `package.json` requires Node `>=20`; README says "Node 16 or later" |
-| 6 | Docker instructions drift | Ports/env vars in README's `docker run`/`docker-compose` examples vs. actual `Dockerfile` `EXPOSE` / `docker-compose.yml` ports & env | Wrong port docs mean "it's not working" support requests | README says app runs on `:3000`; Dockerfile exposes `8080` |
+| 6 | Docker instructions drift | README's `docker run`/`docker-compose`/`docker build` instructions vs. what exists: container **ports** (README `-p` vs. `Dockerfile` `EXPOSE`/compose `ports`) and **file existence** (documents `docker-compose up`/`docker build` but no compose file/Dockerfile exists anywhere) | Wrong port docs / missing files mean "it's not working" support requests | README says app runs on `:3000`; Dockerfile exposes `8080` |
 | 7 | Dead file/link references | Relative links and inline file-path references in README vs. actual repository tree | Broken pointers erode trust and block navigation | README links to `docs/CONTRIBUTING.md`, file doesn't exist |
 | 8 | License mismatch | License named in README vs. `package.json` `license` field vs. presence/content of a `LICENSE` file | Legal-adjacent inconsistency, easy to detect, easy to fix | README says "MIT", `package.json` says `"license": "UNLICENSED"` |
 | 9 | Version/badge drift | Version referenced in README prose or badges vs. `package.json` `"version"` | Stale version claims confuse users diagnosing issues | README badge shows `v1.2.0`, `package.json` is at `2.0.0` |
@@ -99,18 +99,24 @@ Every detector compares **structured artifacts** — README claims against a
 Docker/compose config. These have definite answers, so when a detector fires it's
 authoritative. The analyzer never fetches or scans arbitrary application source.
 
-**Deliberately not attempted — and why "env var drift" was cut.** The tempting
-check "the app reads `process.env.X` but documents it nowhere" requires scanning
-the repo's source and deciding, for **every file**, whether it's "the app" vs.
-tooling / tests / scripts / examples / build config. That classification isn't
-encoded in a file path — it's a property of the build graph — so a path+regex scan
-can only guess. Guessing via a directory *denylist* is unbounded (repos name
-non-app directories anything), which is exactly why it produced an endless stream
-of false positives. It was removed rather than papered over. The one reliable,
-**structured** slice of env checking is kept as part of Docker drift: when a repo
-has a `.env.example`, a compose file that `requires` host env vars missing from it
-is real, bounded drift (compare compose ↔ `.env.example` ↔ README — all structured),
-surfaced as one aggregated `warning` per compose file.
+**Deliberately not attempted — the "documents an env var?" family of checks.**
+Two tempting checks were built and then cut for the same root reason:
+
+1. *Env var drift* — "the app reads `process.env.X` but documents it nowhere" —
+   requires deciding, for **every file**, whether it's "the app" vs. tooling /
+   tests / scripts / examples / build config. That classification isn't in a file
+   path; a directory *denylist* is unbounded (repos name non-app directories
+   anything).
+2. *Compose env drift* — "a compose file requires a host env var missing from
+   `.env.example`" — has the same two unrecoverable questions underneath: *is this
+   compose file the real deployment* (vs. `.do/`, `metrics/otel/`, `examples/`
+   tooling — again an open-ended directory denylist) and *is this var
+   "documented"*. Nearly every real-repo finding it produced was contested, so it
+   was cut too.
+
+What remains in Docker drift is purely **structural**: container port drift and
+file existence — both definite comparisons against the Dockerfile/compose config
+and the file tree, with no "is this the app / is this documented" guess.
 
 AI/LLM judgment about whether prose "documents" something is also out of scope by
 design (the product is deterministic).
