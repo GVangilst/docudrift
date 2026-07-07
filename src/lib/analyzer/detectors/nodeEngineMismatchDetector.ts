@@ -13,6 +13,13 @@ const DETECTOR_ID = 'node-engine-mismatch';
 // Repo config sources that pin a single concrete Node version.
 const PINNED_SOURCES = new Set(['.nvmrc', '.node-version', 'volta.node', '.tool-versions']);
 
+// A major-only pin like `.nvmrc` = "v22" names the whole 22 line, not literally
+// 22.0.0 — so it shouldn't be coerced-then-compared against a range like
+// ">=22.18.0" (which would be a false conflict).
+function isMajorOnlyPin(raw: string): boolean {
+  return /^v?\d+$/i.test(raw.trim());
+}
+
 type DocSpec =
   | { type: 'version'; version: string; label: string }
   | { type: 'range'; range: string; label: string };
@@ -124,7 +131,15 @@ export function nodeEngineMismatchDetector(claims: DocClaim[], truth: TruthModel
   if (engines && pinned) {
     const enginesRange = validRange(engines.raw);
     const pinnedVersion = coerce(pinned.raw);
-    if (enginesRange && pinnedVersion && !satisfies(pinnedVersion.version, enginesRange)) {
+    // For a major-only pin, only a conflict if engines excludes the entire major
+    // line (`22.x`); for a full pin, the exact version must satisfy engines.
+    const conflicts =
+      !!enginesRange &&
+      !!pinnedVersion &&
+      (isMajorOnlyPin(pinned.raw)
+        ? !intersects(`${major(pinnedVersion)}.x`, enginesRange)
+        : !satisfies(pinnedVersion.version, enginesRange));
+    if (conflicts) {
       issues.push({
         id: `${DETECTOR_ID}:repo-config-ambiguity`,
         detectorId: DETECTOR_ID,

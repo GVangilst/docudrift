@@ -19,6 +19,13 @@ const RUN_SCRIPT_RE = /\bnpm\s+run(?:-script)?\s+([a-zA-Z0-9_:.-]+)/g;
 const START_RE = /\bnpm\s+start\b/;
 const TEST_RE = /\bnpm\s+test\b/;
 
+// Stand-in script names from "wrap your script like such: `npm run myscript`"
+// examples — placeholders, not real scripts, so they must not become claims.
+const PLACEHOLDER_SCRIPTS = new Set([
+  'myscript', 'my-script', 'yourscript', 'your-script', 'somescript', 'some-script',
+  'scriptname', 'script-name', 'mycommand', 'my-command', 'yourcommand', 'your-command',
+]);
+
 // An uppercase `KEY=` assignment, e.g. `DATABASE_URL=...` in an env block. The
 // lookbehind stops matching a fragment of a larger token (e.g. `UGRD` inside a
 // URL query `var_UGRD=on`); the lookahead avoids JS comparisons like `X===y`.
@@ -107,6 +114,19 @@ const FILE_EXTENSIONS = new Set([
   'py', 'rb', 'go', 'rs', 'java', 'kt', 'php',
 ]);
 
+// Common web TLDs used to tell a hostname (`install.nocodb.com`) from a folder
+// with a dot in its name (`my.folder`). Deliberately excludes ambiguous ccTLDs
+// that collide with file extensions (e.g. `.sh`), which are handled as files.
+const COMMON_TLDS = new Set([
+  'com', 'org', 'net', 'io', 'dev', 'co', 'app', 'ai', 'xyz', 'me', 'info', 'cloud', 'gg',
+]);
+
+/** True when a path segment looks like `label.label.tld` with a common web TLD. */
+function isDomainLike(segment: string): boolean {
+  if (!/^(?:[a-z0-9-]+\.)+[a-z0-9-]+$/i.test(segment)) return false;
+  return COMMON_TLDS.has(segment.slice(segment.lastIndexOf('.') + 1).toLowerCase());
+}
+
 /**
  * Normalizes a raw doc token into a repo-relative file path, or returns null
  * if it doesn't look like a file reference (URL, package name, prose, etc).
@@ -126,6 +146,11 @@ function normalizeFileRef(raw: string): string | null {
   // Drop any query string or anchor fragment, then normalize a leading ./ or /.
   s = s.split(/[?#]/)[0].replace(/^\.?\//, '');
   if (!s || /\s/.test(s)) return null;
+
+  // Reject `host.tld/path` domain references (e.g. `install.nocodb.com/noco.sh`)
+  // — a bare domain curl'd in a snippet, not a repo file. Only when the first
+  // path segment is a hostname whose final label is a common web TLD.
+  if (s.includes('/') && isDomainLike(s.slice(0, s.indexOf('/')))) return null;
 
   // Require a recognized file extension on the final path segment.
   const lastSegment = s.split('/').pop() ?? '';
@@ -172,6 +197,7 @@ function extractNpmScriptClaims(text: string, source: DocClaimSource): NpmScript
 
   const add = (scriptName: string, command: string) => {
     if (seen.has(scriptName)) return;
+    if (PLACEHOLDER_SCRIPTS.has(scriptName.toLowerCase())) return;
     seen.add(scriptName);
     claims.push({ kind: 'npm-script', command, scriptName, source });
   };

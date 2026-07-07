@@ -76,6 +76,26 @@ describe('fileReferenceDriftDetector', () => {
     expect(issues[0].title).toContain('docs/CONTRIBUTING.md');
   });
 
+  it('does not treat a bare domain (host.tld/path) as a repo file path', () => {
+    // `install.nocodb.com/noco.sh` is a curl'd domain, not a repo file — while a
+    // folder-with-a-dot like `my.config/setup.sh` (missing) should still flag.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'app' },
+      files: [
+        { path: 'package.json', content: '{"name":"app"}' },
+        {
+          path: 'README.md',
+          content:
+            '# app\n\nRun install.nocodb.com/noco.sh to bootstrap. See my.config/setup.sh for details.\n',
+        },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    const issues = fileRefIssues(snapshot);
+    expect(issues.some((i) => i.title.includes('install.nocodb.com'))).toBe(false);
+    expect(issues.some((i) => i.title.includes('my.config/setup.sh'))).toBe(true);
+  });
+
   it('does not treat URL-encoded badge fragments as file paths', () => {
     // `%40scope/server.svg` inside a shields.io URL must not become `40scope/server.svg`.
     const issues = analyzeRepository(loadFixtureRepo('file-ref-badge-url')).filter(

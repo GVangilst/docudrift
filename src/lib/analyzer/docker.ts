@@ -74,12 +74,17 @@ function parseCompose(content: string): {
 } {
   const ports: PortMapping[] = [];
   const requiredEnvKeys = new Set<string>();
+  // Keys given a literal value inline anywhere in the file (e.g. a db service's
+  // `POSTGRES_USER=documenso`). Such a key isn't really "required from the host"
+  // even if another service interpolates `${POSTGRES_USER}`, so it's suppressed.
+  const inlineSetKeys = new Set<string>();
+  const isLiteralValue = (value: string) => value.trim() !== '' && !value.includes('${');
 
-  // Only a bare `${VAR}` interpolation actually requires the host to supply VAR.
-  // Forms with a modifier — `${VAR:-x}`, `${VAR-x}` (default), `${VAR:+x}`
-  // (alternate), `${VAR:?x}` (error) — let compose resolve the value itself, so
-  // they are optional and must NOT be read as drift.
-  for (const match of content.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+  // A host-required interpolation is either bare `${VAR}` or the error form
+  // `${VAR:?msg}` / `${VAR?msg}` (compose fails if VAR is unset — the author is
+  // explicitly demanding it). Default/alternate forms — `${VAR:-x}`, `${VAR-x}`,
+  // `${VAR:+x}`, `${VAR+x}` — resolve without the host, so they are NOT drift.
+  for (const match of content.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?\?[^}]*)?\}/g)) {
     requiredEnvKeys.add(match[1]);
   }
 
@@ -122,18 +127,23 @@ function parseCompose(content: string): {
 
     if (inEnv) {
       // List form: `- KEY` (required from host) or `- KEY=value` (set inline).
-      const listItem = /^\s*-\s*([A-Za-z_][A-Za-z0-9_]*)(=?)/.exec(line);
+      const listItem = /^\s*-\s*([A-Za-z_][A-Za-z0-9_]*)(=?)(.*)$/.exec(line);
       if (listItem) {
         if (listItem[2] !== '=') requiredEnvKeys.add(listItem[1]);
+        else if (isLiteralValue(listItem[3])) inlineSetKeys.add(listItem[1]);
         continue;
       }
       // Map form: `KEY:` (empty → required) or `KEY: value` (set inline).
       const mapItem = /^\s*([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/.exec(line);
       if (mapItem) {
         if (mapItem[2].trim() === '') requiredEnvKeys.add(mapItem[1]);
+        else if (isLiteralValue(mapItem[2])) inlineSetKeys.add(mapItem[1]);
       }
     }
   }
+
+  // A key set to a literal value inline is documented by the compose file itself.
+  for (const key of inlineSetKeys) requiredEnvKeys.delete(key);
 
   return { ports, requiredEnvKeys: [...requiredEnvKeys] };
 }

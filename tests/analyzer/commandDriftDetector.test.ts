@@ -102,6 +102,22 @@ describe('commandDriftDetector', () => {
     expect(issues.some((i) => i.description.includes('"build"'))).toBe(false);
   });
 
+  it('ignores placeholder script names in a "wrap your script like such" example', () => {
+    // `myscript` is a stand-in, not a real script; `with:env` is real, so no drift.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'myapp' },
+      files: [
+        { path: 'package.json', content: '{"name":"myapp","scripts":{"with:env":"dotenv --"}}' },
+        {
+          path: 'README.md',
+          content: '# myapp\n\n```bash\nnpm run with:env -- npm run myscript\n```\n',
+        },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    expect(commandIssues(snapshot)).toHaveLength(0);
+  });
+
   it('ignores a backticked command inside a heading (a title, not an instruction)', () => {
     const snapshot: RepoSnapshot = {
       repo: { owner: 'o', name: 'myapp' },

@@ -53,6 +53,40 @@ describe('nodeEngineMismatchDetector', () => {
     expect(nodeIssues('node-no-version')).toHaveLength(0);
   });
 
+  it('does not flag a major-only .nvmrc ("v22") against engines.node ">=22.18.0"', () => {
+    // `v22` names the whole 22 line, which intersects >=22.18.0 — not a conflict.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x","engines":{"node":">=22.18.0"}}' },
+        { path: '.nvmrc', content: 'v22\n' },
+        { path: 'README.md', content: '# x' },
+      ],
+      allPaths: ['package.json', '.nvmrc', 'README.md'],
+    };
+    expect(
+      analyzeRepository(snapshot).filter((i) => i.detectorId === 'node-engine-mismatch'),
+    ).toHaveLength(0);
+  });
+
+  it('still flags a major-only .nvmrc when engines excludes the whole major', () => {
+    // `.nvmrc` v20 vs engines >=22 — the entire 20 line is excluded → real conflict.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x","engines":{"node":">=22"}}' },
+        { path: '.nvmrc', content: 'v20\n' },
+        { path: 'README.md', content: '# x' },
+      ],
+      allPaths: ['package.json', '.nvmrc', 'README.md'],
+    };
+    const issues = analyzeRepository(snapshot).filter(
+      (i) => i.detectorId === 'node-engine-mismatch',
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('disagree');
+  });
+
   it('ignores Node versions stated as end-of-life / unsupported', () => {
     // Mirrors ts-fsrs: requirement is >=20; the "16 and 18" are called EOL.
     const snapshot: RepoSnapshot = {

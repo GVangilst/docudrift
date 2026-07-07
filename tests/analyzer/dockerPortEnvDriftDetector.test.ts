@@ -91,13 +91,14 @@ describe('dockerDriftDetector — env drift', () => {
       { path: '.env.example', content: 'PORT=3000\n' },
       {
         path: 'docker-compose.yml',
-        // DATABASE_URL is bare → required; REDIS_PORT has a default → optional.
+        // DATABASE_URL bare + PGPASS `:?err` → required; REDIS_PORT default → optional.
         content:
-          'services:\n  a:\n    environment:\n      DB_URL: ${DATABASE_URL}\n      REDIS: ${REDIS_PORT:-6379}\n',
+          'services:\n  a:\n    environment:\n      DB_URL: ${DATABASE_URL}\n      PGPASS: ${PGPASS:?required}\n      REDIS: ${REDIS_PORT:-6379}\n',
       },
     ]);
     expect(issues).toHaveLength(1);
     expect(issues[0].description).toContain('DATABASE_URL');
+    expect(issues[0].description).toContain('PGPASS');
     expect(issues[0].description).not.toContain('REDIS_PORT');
   });
 
@@ -110,6 +111,35 @@ describe('dockerDriftDetector — env drift', () => {
       {
         path: 'docker-compose.yml',
         content: 'services:\n  a:\n    environment:\n      - DB_SSLMODE\n',
+      },
+    ]);
+    expect(issues).toHaveLength(0);
+  });
+
+  it('suppresses a var set inline (list `KEY=value`) even if another service interpolates it', () => {
+    const issues = dockerIssuesFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      { path: '.env.example', content: 'PORT=3000\n' },
+      {
+        path: 'docker-compose.yml',
+        // db sets POSTGRES_USER inline; app interpolates ${POSTGRES_USER} — not host-required.
+        content:
+          'services:\n  db:\n    environment:\n      - POSTGRES_USER=documenso\n  app:\n    environment:\n      DB: postgres://${POSTGRES_USER}@db/app\n',
+      },
+    ]);
+    expect(issues).toHaveLength(0);
+  });
+
+  it('suppresses a var set inline (map `KEY: "literal"`) in another service', () => {
+    const issues = dockerIssuesFrom([
+      { path: 'package.json', content: '{"name":"x"}' },
+      { path: 'README.md', content: '# x' },
+      { path: '.env.example', content: 'PORT=3000\n' },
+      {
+        path: 'docker-compose.yml',
+        content:
+          'services:\n  server:\n    environment:\n      DISABLE_CRON: ${DISABLE_CRON}\n  worker:\n    environment:\n      DISABLE_CRON: "true"\n',
       },
     ]);
     expect(issues).toHaveLength(0);
