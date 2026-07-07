@@ -35,12 +35,17 @@ export function packageManagerDriftDetector(
   );
 
   // Managers named on each README line — a line naming ≥2 is "offering
-  // alternatives" and is excluded from what the README commits to.
+  // alternatives" and is excluded from what the README commits to. Besides the
+  // parsed command's manager, we also count managers merely *named* on the line
+  // (e.g. `npm i # or yarn or pnpm`), so a comment listing alternatives counts.
   const managersByLine = new Map<string, Set<PackageManager>>();
   for (const claim of commandClaims) {
     const key = `${claim.source.file}:${claim.source.line}`;
     const set = managersByLine.get(key) ?? new Set<PackageManager>();
     set.add(claim.packageManager);
+    for (const m of claim.source.snippet.matchAll(/\b(npm|yarn|pnpm|bun)\b/gi)) {
+      set.add(m[1].toLowerCase() as PackageManager);
+    }
     managersByLine.set(key, set);
   }
 

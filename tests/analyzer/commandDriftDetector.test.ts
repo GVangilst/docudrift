@@ -118,6 +118,23 @@ describe('commandDriftDetector', () => {
     expect(commandIssues(snapshot)).toHaveLength(0);
   });
 
+  it('does not join adjacent inline-code spans into a bogus command', () => {
+    // Documenting npm's own `npm run-script` synopsis: the `--` in a separate
+    // inline-code span must not be read as the script name.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'myapp' },
+      files: [
+        { path: 'package.json', content: '{"name":"myapp"}' },
+        {
+          path: 'README.md',
+          content: '# myapp\n\nThe synopsis for `npm run-script` explicitly shows the `--` for this reason.\n',
+        },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    expect(commandIssues(snapshot)).toHaveLength(0);
+  });
+
   it('ignores a backticked command inside a heading (a title, not an instruction)', () => {
     const snapshot: RepoSnapshot = {
       repo: { owner: 'o', name: 'myapp' },

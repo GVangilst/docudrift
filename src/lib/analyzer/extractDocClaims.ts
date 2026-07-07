@@ -53,6 +53,13 @@ const PM_RUN_SUBCOMMANDS = new Set([
 ]);
 // Words after `install` that are prose/other commands, not a package argument.
 const NON_PACKAGE_ARGS = new Set(['or', 'and', 'then', 'npm', 'pnpm', 'yarn', 'bun']);
+// Flags whose presence means "install a named package" (library install), not
+// repo setup — e.g. `npm install --save-dev webpack`, `npm i -g some-cli`.
+const LIBRARY_INSTALL_FLAGS = new Set([
+  '-g', '--global',
+  '-d', '--save-dev', '-s', '--save', '--save-prod', '-p',
+  '--save-optional', '-o', '--save-exact', '-e', '--save-peer',
+]);
 
 /**
  * Whether a package-manager command reflects using *this* repo (setup/run) — as
@@ -65,7 +72,7 @@ function isRepoManagerCommand(subcommand: string, firstArg: string | undefined):
   if (sub === 'install' || sub === 'i') {
     if (!firstArg) return true; // bare `install` → repo setup
     const arg = firstArg.toLowerCase();
-    if (arg === '-g' || arg === '--global') return false; // global tool install
+    if (LIBRARY_INSTALL_FLAGS.has(arg)) return false; // -g / --save-dev / … → library install
     if (arg.startsWith('-')) return true; // other flags (--frozen-lockfile) → still setup
     return NON_PACKAGE_ARGS.has(arg); // a real package name ⇒ library install
   }
@@ -181,33 +188,40 @@ type LineContext = { inFence: boolean; fenceLang: string; isFenceMarker: boolean
  * heading or link-text mention like "avoid `npm start`" is ignored (a heading is
  * a title, not an instruction — even when the command is backticked).
  */
-function commandContextText(line: string, ctx: LineContext): string | null {
-  if (ctx.isFenceMarker) return null;
+// Returns the command-bearing text fragments for a line, each scanned
+// independently so a command in one fragment can never consume a token from an
+// adjacent one (e.g. `` `npm run-script` `` … `` `--` `` in prose).
+function commandContextTexts(line: string, ctx: LineContext): string[] {
+  if (ctx.isFenceMarker) return [];
   if (ctx.inFence) {
-    if (!SHELL_LANGS.has(ctx.fenceLang)) return null;
-    if (DOCKERFILE_DIRECTIVE_RE.test(line)) return null;
-    return line;
+    if (!SHELL_LANGS.has(ctx.fenceLang)) return [];
+    if (DOCKERFILE_DIRECTIVE_RE.test(line)) return [];
+    return [line];
   }
-  if (ctx.isHeading) return null;
-  // Prose: only the contents of inline-code spans.
-  const spans = [...line.matchAll(INLINE_CODE_RE)].map((m) => m[1]);
-  return spans.length ? spans.join('\n') : null;
+  if (ctx.isHeading) return [];
+  // Prose: each inline-code span on its own — never joined.
+  return [...line.matchAll(INLINE_CODE_RE)].map((m) => m[1]);
 }
 
-function extractNpmScriptClaims(text: string, source: DocClaimSource): NpmScriptClaim[] {
+function extractNpmScriptClaims(texts: string[], source: DocClaimSource): NpmScriptClaim[] {
   const claims: NpmScriptClaim[] = [];
   const seen = new Set<string>();
 
   const add = (scriptName: string, command: string) => {
     if (seen.has(scriptName)) return;
+    // A real script name has at least one alphanumeric char — reject punctuation
+    // tokens like `--` (npm option separator picked up from an adjacent span).
+    if (!/[a-z0-9]/i.test(scriptName)) return;
     if (PLACEHOLDER_SCRIPTS.has(scriptName.toLowerCase())) return;
     seen.add(scriptName);
     claims.push({ kind: 'npm-script', command, scriptName, source });
   };
 
-  for (const match of text.matchAll(RUN_SCRIPT_RE)) add(match[1], match[0].trim());
-  if (START_RE.test(text)) add('start', 'npm start');
-  if (TEST_RE.test(text)) add('test', 'npm test');
+  for (const text of texts) {
+    for (const match of text.matchAll(RUN_SCRIPT_RE)) add(match[1], match[0].trim());
+    if (START_RE.test(text)) add('start', 'npm start');
+    if (TEST_RE.test(text)) add('test', 'npm test');
+  }
 
   return claims;
 }
@@ -296,20 +310,22 @@ function extractEnvVarClaims(
 }
 
 function extractPackageCommandClaims(
-  text: string,
+  texts: string[],
   source: DocClaimSource,
 ): PackageCommandClaim[] {
   const claims: PackageCommandClaim[] = [];
 
-  for (const match of text.matchAll(PM_COMMAND_RE)) {
-    const [, manager, subcommand, firstArg] = match;
-    if (!isRepoManagerCommand(subcommand, firstArg)) continue;
-    claims.push({
-      kind: 'command',
-      packageManager: manager as PackageManager,
-      command: match[0].trim(),
-      source,
-    });
+  for (const text of texts) {
+    for (const match of text.matchAll(PM_COMMAND_RE)) {
+      const [, manager, subcommand, firstArg] = match;
+      if (!isRepoManagerCommand(subcommand, firstArg)) continue;
+      claims.push({
+        kind: 'command',
+        packageManager: manager as PackageManager,
+        command: match[0].trim(),
+        source,
+      });
+    }
   }
 
   return claims;
@@ -353,8 +369,7 @@ function parseRunEnvKeys(command: string): string[] {
   return keys;
 }
 
-function extractDockerCommandClaims(text: string, source: DocClaimSource): DockerCommandClaim[] {
-  const line = text;
+function extractDockerCommandClaims(texts: string[], source: DocClaimSource): DockerCommandClaim[] {
   const claims: DockerCommandClaim[] = [];
   const seen = new Set<string>();
 
@@ -377,16 +392,18 @@ function extractDockerCommandClaims(text: string, source: DocClaimSource): Docke
     });
   };
 
-  for (const match of line.matchAll(DOCKER_COMPOSE_RE)) add('compose', match[0]);
-  for (const match of line.matchAll(DOCKER_BUILD_RE)) {
-    const fileMatch = DOCKER_BUILD_FILE_RE.exec(match[0]);
-    add('build', match[0], { dockerfile: fileMatch ? fileMatch[1] : undefined });
-  }
-  for (const match of line.matchAll(DOCKER_RUN_RE)) {
-    add('run', match[0], {
-      ports: parseRunPorts(match[0]),
-      envKeys: parseRunEnvKeys(match[0]),
-    });
+  for (const line of texts) {
+    for (const match of line.matchAll(DOCKER_COMPOSE_RE)) add('compose', match[0]);
+    for (const match of line.matchAll(DOCKER_BUILD_RE)) {
+      const fileMatch = DOCKER_BUILD_FILE_RE.exec(match[0]);
+      add('build', match[0], { dockerfile: fileMatch ? fileMatch[1] : undefined });
+    }
+    for (const match of line.matchAll(DOCKER_RUN_RE)) {
+      add('run', match[0], {
+        ports: parseRunPorts(match[0]),
+        envKeys: parseRunEnvKeys(match[0]),
+      });
+    }
   }
 
   return claims;
@@ -450,11 +467,11 @@ export function extractDocClaims(snapshot: RepoSnapshot): DocClaim[] {
     };
     // Commands (npm scripts + package-manager) only count in code contexts
     // (shell block / inline code), never prose, headings, or tables.
-    const commandText = commandContextText(line, ctx);
-    if (commandText !== null) {
-      if (!awayFromRepoRoot) claims.push(...extractNpmScriptClaims(commandText, source));
-      claims.push(...extractPackageCommandClaims(commandText, source));
-      claims.push(...extractDockerCommandClaims(commandText, source));
+    const commandTexts = commandContextTexts(line, ctx);
+    if (commandTexts.length > 0) {
+      if (!awayFromRepoRoot) claims.push(...extractNpmScriptClaims(commandTexts, source));
+      claims.push(...extractPackageCommandClaims(commandTexts, source));
+      claims.push(...extractDockerCommandClaims(commandTexts, source));
     }
     // File references only count in doc context — never inside fenced code blocks.
     if (!ctx.inFence && !ctx.isFenceMarker) {

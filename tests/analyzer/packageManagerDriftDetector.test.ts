@@ -86,6 +86,40 @@ describe('packageManagerDriftDetector', () => {
     expect(issues[0].title).toContain('npm');
   });
 
+  it('does not flag `npm i` when a trailing comment names other managers', () => {
+    // solid: `> npm i # or yarn or pnpm` next to a pnpm-lock.yaml — the comment
+    // offers alternatives, so npm is not a commitment.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x"}' },
+        { path: 'pnpm-lock.yaml', content: '' },
+        { path: 'README.md', content: '# x\n\n```sh\n> npm i # or yarn or pnpm\n```\n' },
+      ],
+      allPaths: ['package.json', 'pnpm-lock.yaml', 'README.md'],
+    };
+    expect(
+      analyzeRepository(snapshot).filter((i) => i.detectorId === 'package-manager-drift'),
+    ).toHaveLength(0);
+  });
+
+  it('still flags a lone `npm install` (no other manager named) against pnpm-lock', () => {
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x"}' },
+        { path: 'pnpm-lock.yaml', content: '' },
+        { path: 'README.md', content: '# x\n\n```sh\nnpm install\n```\n' },
+      ],
+      allPaths: ['package.json', 'pnpm-lock.yaml', 'README.md'],
+    };
+    const issues = analyzeRepository(snapshot).filter(
+      (i) => i.detectorId === 'package-manager-drift',
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('npm');
+  });
+
   it('emits a low-severity ambiguity warning when multiple lockfiles exist', () => {
     const issues = pmIssues('pm-multiple-lockfiles');
     expect(issues).toHaveLength(1);
@@ -108,6 +142,23 @@ describe('packageManagerDriftDetector', () => {
     const issues = pmIssuesFor('# x\n\n```bash\nyarn install\n```\n');
     expect(issues).toHaveLength(1);
     expect(issues[0].title).toContain('yarn');
+  });
+
+  it('ignores `npm install --save-dev <pkg>` (library install, not repo setup)', () => {
+    // webpack's README: "Install with npm: `npm install --save-dev webpack`" —
+    // adds webpack to YOUR project; says nothing about webpack's own manager.
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'r' },
+      files: [
+        { path: 'package.json', content: '{"name":"x"}' },
+        { path: 'yarn.lock', content: '' },
+        { path: 'README.md', content: '# x\n\n```bash\nnpm install --save-dev webpack\n```\n' },
+      ],
+      allPaths: ['package.json', 'yarn.lock', 'README.md'],
+    };
+    expect(
+      analyzeRepository(snapshot).filter((i) => i.detectorId === 'package-manager-drift'),
+    ).toHaveLength(0);
   });
 
   it('treats an inline alternatives comment as offering alternatives (no drift)', () => {
