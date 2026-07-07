@@ -86,7 +86,7 @@ const NODE_NEGATION_RE =
 // requirement — e.g. "fetch() … starting from Node.js v18", "async functions
 // (node v7.6+)", "added in Node 18". Such lines are skipped too.
 const NODE_FEATURE_MENTION_RE =
-  /\b(starting (?:from|with|in|at)|added in|introduced in|available(?:\s+\w+){0,2}\s+(?:in|since|from)|supported(?:\s+\w+){0,2}\s+(?:in|since|from)|built[-\s]?in|ships? with|comes? with|included (?:in|since)|powered by)\b/i;
+  /\b(starting (?:from|with|in|at)|added in|introduced in|available(?:\s+\w+){0,2}\s+(?:in|since|from)|supported(?:\s+\w+){0,2}\s+(?:in|since|from)|built[-\s]?in|ships? with|comes? with|included (?:in|since)|powered by|until\b|you can|you could|you may|you['’]ll be able)\b/i;
 
 // Docker commands. Requiring a verb after `docker` keeps hostnames like
 // "docs.docker.com" (no space + verb) from matching.
@@ -97,11 +97,12 @@ const DOCKER_BUILD_FILE_RE = /-f\s+([-\w./]+)/;
 
 // Markdown link destination: the `dest` in `[text](dest)`.
 const MARKDOWN_LINK_DEST_RE = /\]\(\s*([^)\s]+)/g;
-// A run of characters that could plausibly form a path token. Parentheses are
-// included so Next.js route-group segments (`app/(chat)/opengraph-image.png`)
-// stay whole; normalizeFileRef still strips parens that merely wrap the token
-// in prose (e.g. `(src/index.ts)`).
-const PATH_TOKEN_RE = /[A-Za-z0-9_@./()-]+/g;
+// Markdown reference-link definition: the `dest` in `[label]: dest` at line start.
+const REF_LINK_DEF_RE = /^\s*\[[^\]]+\]:\s+(\S+)/;
+// HTML attributes that point at a file: `<img src>`, `<a href>`, `<source
+// srcset>`. Parentheses in the value are fine — Next.js route-group segments
+// (`app/(chat)/opengraph-image.png`) come through intact.
+const HTML_ATTR_RE = /\b(?:src|href|srcset)\s*=\s*["']([^"']+)["']/gi;
 // A URL scheme prefix such as `http:`, `mailto:`, `ftp:`.
 const URL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 
@@ -220,37 +221,29 @@ function extractNpmScriptClaims(texts: string[], source: DocClaimSource): NpmScr
   return claims;
 }
 
-// A full URL run — bare path tokens inside one are URL fragments, not repo files
-// (e.g. `%40trpc/server.svg` inside a shields.io badge URL).
-const URL_SPAN_RE = /\bhttps?:\/\/[^\s)"'<>]+/gi;
-
 function extractFileReferenceClaims(line: string, source: DocClaimSource): FileReferenceClaim[] {
   const claims: FileReferenceClaim[] = [];
   const seen = new Set<string>();
 
-  const consider = (raw: string, mustLookLikePath: boolean) => {
-    // A bare token from prose must contain a path separator to count as a file
-    // reference. This keeps technology names like "Node.js" / "Vue.js" (which
-    // end in a known extension but have no `/`) from being read as file paths.
-    if (mustLookLikePath && !raw.includes('/')) return;
+  const consider = (raw: string) => {
     const path = normalizeFileRef(raw);
     if (!path || seen.has(path)) return;
     seen.add(path);
     claims.push({ kind: 'file-reference', rawText: raw.trim(), path, source });
   };
 
-  const urlSpans = [...line.matchAll(URL_SPAN_RE)].map((m) => ({
-    start: m.index ?? 0,
-    end: (m.index ?? 0) + m[0].length,
-  }));
-  const insideUrl = (index: number) => urlSpans.some((s) => index >= s.start && index < s.end);
-
-  // Markdown link targets are explicit file intent — accept even without a `/`.
-  for (const match of line.matchAll(MARKDOWN_LINK_DEST_RE)) consider(match[1], false);
-  // Bare tokens scanned from prose must look path-like and not sit inside a URL.
-  for (const match of line.matchAll(PATH_TOKEN_RE)) {
-    if (insideUrl(match.index ?? 0)) continue;
-    consider(match[0], true);
+  // Only EXPLICIT file references count: markdown link/image destinations
+  // (`[t](dest)`, `![a](dest)`) and HTML `src`/`href`/`srcset`. Bare path-shaped
+  // tokens in prose/inline-code are NOT scanned — on real docs they are
+  // overwhelmingly examples (CLI args, `import "./x.css"`, `dist/`/`node_modules/`
+  // outputs), which flooded this detector with false positives. normalizeFileRef
+  // still filters URLs, anchors, domains, and non-file extensions.
+  for (const match of line.matchAll(MARKDOWN_LINK_DEST_RE)) consider(match[1]);
+  const refDef = REF_LINK_DEF_RE.exec(line);
+  if (refDef) consider(refDef[1]);
+  for (const match of line.matchAll(HTML_ATTR_RE)) {
+    // srcset can be "url descriptor, url descriptor" — take the first URL token.
+    consider(match[1].trim().split(/[\s,]+/)[0]);
   }
 
   return claims;

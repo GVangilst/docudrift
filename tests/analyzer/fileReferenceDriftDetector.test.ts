@@ -76,9 +76,10 @@ describe('fileReferenceDriftDetector', () => {
     expect(issues[0].title).toContain('docs/CONTRIBUTING.md');
   });
 
-  it('does not treat a bare domain (host.tld/path) as a repo file path', () => {
-    // `install.nocodb.com/noco.sh` is a curl'd domain, not a repo file — while a
-    // folder-with-a-dot like `my.config/setup.sh` (missing) should still flag.
+  it('does not treat a linked bare domain (host.tld/path) as a repo file path', () => {
+    // A link whose destination is a bare domain (`install.nocodb.com/noco.sh`) is
+    // a URL, not a repo file — while a real folder-with-a-dot link
+    // (`my.config/setup.sh`, missing) should still flag.
     const snapshot: RepoSnapshot = {
       repo: { owner: 'o', name: 'app' },
       files: [
@@ -86,7 +87,7 @@ describe('fileReferenceDriftDetector', () => {
         {
           path: 'README.md',
           content:
-            '# app\n\nRun install.nocodb.com/noco.sh to bootstrap. See my.config/setup.sh for details.\n',
+            '# app\n\n[bootstrap](install.nocodb.com/noco.sh) and see [config](./my.config/setup.sh).\n',
         },
       ],
       allPaths: ['package.json', 'README.md'],
@@ -110,18 +111,23 @@ describe('fileReferenceDriftDetector', () => {
     expect(fileRefIssues(snapshot)).toHaveLength(0);
   });
 
-  it('still flags a genuinely missing route-group path', () => {
+  it('still flags a genuinely missing route-group path (via an HTML src)', () => {
+    // Route-group parens survive through the HTML-attr scan (where such refs
+    // actually appear, e.g. `<img src>`); the missing file is flagged.
     const snapshot: RepoSnapshot = {
       repo: { owner: 'o', name: 'app' },
       files: [
         { path: 'package.json', content: '{"name":"app"}' },
-        { path: 'README.md', content: '# app\n\nSee app/(marketing)/page.tsx for the landing page.\n' },
+        {
+          path: 'README.md',
+          content: '# app\n\n<img alt="hero" src="app/(marketing)/hero.png">\n',
+        },
       ],
       allPaths: ['package.json', 'README.md'],
     };
     const issues = fileRefIssues(snapshot);
     expect(issues).toHaveLength(1);
-    expect(issues[0].title).toContain('app/(marketing)/page.tsx');
+    expect(issues[0].title).toContain('app/(marketing)/hero.png');
   });
 
   it('does not flag a file path inside a scaffolded project (referenced after cd away)', () => {
@@ -139,6 +145,20 @@ describe('fileReferenceDriftDetector', () => {
       allPaths: ['package.json', 'README.md'],
     };
     expect(fileRefIssues(snapshot)).toHaveLength(0);
+  });
+
+  it('flags a missing reference-style link definition (AFFiNE `[label]: ./path`)', () => {
+    const snapshot: RepoSnapshot = {
+      repo: { owner: 'o', name: 'app' },
+      files: [
+        { path: 'package.json', content: '{"name":"app"}' },
+        { path: 'README.md', content: '# app\n\nSee [jobs available].\n\n[jobs available]: ./docs/jobs.md\n' },
+      ],
+      allPaths: ['package.json', 'README.md'],
+    };
+    const issues = fileRefIssues(snapshot);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].title).toContain('docs/jobs.md');
   });
 
   it('does not treat URL-encoded badge fragments as file paths', () => {

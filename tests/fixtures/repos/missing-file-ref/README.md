@@ -2,4 +2,4 @@
 
 ## Structure
 
-The main component lives in `src/App.jsx`.
+The main component lives in [src/App.jsx](./src/App.jsx).
